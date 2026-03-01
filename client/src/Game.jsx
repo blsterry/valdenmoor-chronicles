@@ -354,7 +354,8 @@ export default function Game({ user, onLogout, onAdmin }) {
       <div style={{letterSpacing:'0.35em',fontSize:'0.75rem',color:'#6a5a4a',marginBottom:'2rem'}}>CHRONICLES</div>
       <div style={{width:'60px',height:'1px',background:'#c9a96e',opacity:0.4,marginBottom:'2rem'}}/>
       <p style={{maxWidth:'420px',lineHeight:'1.9',color:'#8a7a6a',marginBottom:'2.5rem',fontSize:'0.9rem'}}>
-        A classless open world of mystery and intrigue. Learn spells from those willing to teach. Uncover the secrets of the Forgetting. Nothing in Valdenmoor is as it seems.
+        People have been forgetting. Not small things — names, faces, whole years. It started in the city and spread outward. No one knows why.
+        You are not from here. But the road brought you to the crossroads, and the crossroads has a way of keeping people.
       </p>
       <button onClick={() => setScreen('name')} style={{background:'transparent',border:'2px solid #c9a96e66',color:'#c9a96e',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.15em',cursor:'pointer',fontFamily:'Georgia, serif',transition:'all 0.25s'}}
         onMouseOver={e=>{e.target.style.background='rgba(201,169,110,0.15)';e.target.style.borderColor='#c9a96e'}}
@@ -373,7 +374,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
       <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'1.5rem'}}>YOUR NAME</div>
       <input value={tempName} onChange={e=>setTempName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleNameSubmit()}
-        placeholder="Traveler..." autoFocus
+        placeholder="" autoFocus
         style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.5)',color:'#e8c87a',fontSize:'1.8rem',textAlign:'center',padding:'0.5rem 1rem',fontFamily:'Georgia, serif',outline:'none',width:'280px',marginBottom:'2.5rem'}}/>
       <button onClick={handleNameSubmit} disabled={!tempName.trim()} style={{background:'transparent',border:'1px solid rgba(201,169,110,0.5)',color:'#c9a96e',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:tempName.trim()?'pointer':'not-allowed',fontFamily:'Georgia, serif',letterSpacing:'0.1em',opacity:tempName.trim()?1:0.4}}>
         Continue →
@@ -578,7 +579,7 @@ export default function Game({ user, onLogout, onAdmin }) {
         <div style={{padding:'0.5rem 0.75rem 0.6rem',background:'rgba(0,0,0,0.6)',borderTop:'1px solid rgba(201,169,110,0.15)'}}>
           <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
             <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
-              placeholder={INPUT_PLACEHOLDERS[Math.floor(Date.now()/30000)%INPUT_PLACEHOLDERS.length]}
+              placeholder="What do you do?"
               disabled={loading}
               style={{flex:1,background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.3)',color:'#d4c4a0',fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
             <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()} style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.2)'}`,color:input.trim()?'#c9a96e':'#4a3a2a',padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
