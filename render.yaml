@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: valdenmoor-chronicles
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false          # Set this manually in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true  # Render auto-generates a secure random value
+      - key: DATABASE_URL
+        fromDatabase:
+          name: valdenmoor-db
+          property: connectionString
+
+databases:
+  - name: valdenmoor-db
+    plan: free
+    databaseName: valdenmoor
+    user: valdenmoor

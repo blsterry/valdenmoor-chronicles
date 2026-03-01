@@ -1,0 +1,599 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { sendToGM, loadSave, writeSave, deleteSave, logout } from './api.js';
+
+// ─── Constants ───────────────────────────────────────────────
+
+const INITIAL_CHARACTER = {
+  name: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
+  stats: { STR: 8, DEX: 8, INT: 8, WIS: 8, CON: 8, CHA: 8 },
+  hp: 20, maxHp: 20, mp: 10, maxMp: 10, gold: 15,
+  inventory: ["Worn Traveler's Cloak", 'Flint & Steel', 'Waterskin', '3x Hardtack'],
+  spells: [], skills: [], statPoints: 10,
+  location: 'crossroads', knownLocations: ['crossroads'],
+  npcRelations: {}, flags: {}, dayCount: 1,
+};
+
+const STAT_LABELS = {
+  STR: 'Strength', DEX: 'Dexterity', INT: 'Intellect',
+  WIS: 'Wisdom', CON: 'Constitution', CHA: 'Charisma',
+};
+
+const MOOD_THEMES = {
+  tense:      { bg: 'radial-gradient(ellipse at top, #2a0a0a 0%, #0d0505 100%)', accent: '#c94a4a', fog: '#8B1A1A' },
+  calm:       { bg: 'radial-gradient(ellipse at top, #0a1a12 0%, #050d08 100%)', accent: '#4caf7a', fog: '#2C4A3E' },
+  mysterious: { bg: 'radial-gradient(ellipse at top, #12082a 0%, #08050f 100%)', accent: '#9b72cf', fog: '#2D1B4E' },
+  combat:     { bg: 'radial-gradient(ellipse at top, #250808 0%, #0d0303 100%)', accent: '#e05a5a', fog: '#5B1010' },
+  discovery:  { bg: 'radial-gradient(ellipse at top, #081525 0%, #030810 100%)', accent: '#5a9fd4', fog: '#1A3A5C' },
+  social:     { bg: 'radial-gradient(ellipse at top, #0f1a08 0%, #060a04 100%)', accent: '#8fc47a', fog: '#2A3520' },
+};
+
+const INPUT_PLACEHOLDERS = [
+  'I search the room carefully for anything hidden...',
+  'I pick up five smooth stones from the riverbank and pocket them',
+  'I ask Mira what she knows about the old mill',
+  'I wait in the shadows and watch to see who comes and goes',
+  'I pull out a stone and toss it into the bushes to my left',
+  'I examine the inscription on the shrine more closely',
+  'I try to pick the lock on the old door',
+  'I tear a strip from my cloak and use it to bind the wound',
+  'I climb the oak tree to get a better view of the road',
+  'I sit at the bar and listen to the conversations around me',
+  'I draw my knife and hold it behind my back before answering',
+  'I ask the innkeeper if anyone matching that description passed through',
+];
+
+// ─── Game Engine ─────────────────────────────────────────────
+
+const GameEngine = {
+  applyStateChanges(character, sc) {
+    if (!sc) return { character, leveledUp: false };
+    let c = { ...character };
+    if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
+    if (sc.mp != null)   c.mp   = Math.max(0, Math.min(sc.mp, c.maxMp));
+    if (sc.gold != null) c.gold = Math.max(0, sc.gold);
+    if (sc.location)     c.location = sc.location;
+    if (sc.addInventory?.length)    c.inventory = [...c.inventory, ...sc.addInventory];
+    if (sc.removeInventory?.length) {
+      let inv = [...c.inventory];
+      sc.removeInventory.forEach(item => {
+        const idx = inv.indexOf(item);
+        if (idx !== -1) inv.splice(idx, 1);
+      });
+      c.inventory = inv;
+    }
+    if (sc.addSpell)         c.spells = [...c.spells, sc.addSpell];
+    if (sc.addSkill)         c.skills = [...c.skills, sc.addSkill];
+    if (sc.addKnownLocation) c.knownLocations = [...new Set([...c.knownLocations, sc.addKnownLocation])];
+    if (sc.npcRelationChange) {
+      c.npcRelations = { ...c.npcRelations };
+      for (const [npc, delta] of Object.entries(sc.npcRelationChange))
+        c.npcRelations[npc] = (c.npcRelations[npc] || 0) + delta;
+    }
+    if (sc.addQuestFlag) c.flags = { ...c.flags, ...sc.addQuestFlag };
+    if (sc.xp) {
+      c.xp += sc.xp;
+      if (c.xp >= c.xpToNext || sc.levelUp) {
+        c.level += 1;
+        c.xp = Math.max(0, c.xp - c.xpToNext);
+        c.xpToNext = Math.floor(c.xpToNext * 1.5);
+        c.statPoints = (c.statPoints || 0) + 2;
+        const conMod = Math.floor((c.stats.CON - 10) / 2);
+        c.maxHp += conMod + 3;
+        c.hp = Math.min(c.hp + conMod + 3, c.maxHp);
+        return { character: c, leveledUp: true };
+      }
+    }
+    return { character: c, leveledUp: false };
+  },
+
+  computeDerivedStats(stats) {
+    return {
+      maxHp: 10 + Math.floor((stats.CON - 10) / 2) * 2 + 10,
+      maxMp: 5  + Math.floor((stats.INT - 10) / 2) * 2 + 5,
+    };
+  },
+};
+
+// ─── Scene Illustration (SVG) ────────────────────────────────
+
+function SceneIllustration({ prompt, mood }) {
+  const theme = MOOD_THEMES[mood] || MOOD_THEMES.mysterious;
+  const p = (prompt || '').toLowerCase();
+  const hasMoon   = p.includes('moon') || p.includes('night');
+  const hasFire   = p.includes('fire') || p.includes('torch') || p.includes('flame') || p.includes('candle') || p.includes('amber');
+  const hasWater  = p.includes('sea') || p.includes('ocean') || p.includes('river') || p.includes('port') || p.includes('coast');
+  const hasForest = p.includes('forest') || p.includes('tree') || p.includes('wood') || p.includes('druid');
+  const hasRuins  = p.includes('ruin') || p.includes('stone') || p.includes('arch') || p.includes('ancient') || p.includes('dungeon');
+  const hasCity   = p.includes('city') || p.includes('market') || p.includes('court') || p.includes('tower') || p.includes('spire');
+  const hasFog    = p.includes('fog') || p.includes('mist') || p.includes('shadow');
+  const hasRunes  = p.includes('rune') || p.includes('glow') || p.includes('magic') || p.includes('arcane');
+
+  const skyColors = {
+    tense: ['#1a0505','#2d0808'], calm: ['#050d10','#0a1a20'],
+    mysterious: ['#08050f','#160d2a'], combat: ['#1a0303','#2d0505'],
+    discovery: ['#030812','#071525'], social: ['#060a03','#0d1508'],
+  };
+  const [skyDark, skyLight] = skyColors[mood] || skyColors.mysterious;
+  const accent = theme.accent;
+
+  const stars   = (hasMoon || !hasFire) ? Array.from({length:40},(_,i)=>({x:(i*37+13)%400,y:(i*23+7)%80,r:i%3===0?1.2:0.7,o:0.3+(i%5)*0.12})) : [];
+  const trees   = hasForest ? Array.from({length:8},(_,i)=>({x:20+i*52,h:40+(i*17)%30,w:18+(i*7)%12})) : [];
+  const pillars = hasRuins  ? Array.from({length:5},(_,i)=>({x:40+i*75,h:50+(i*23)%50,broken:i%2===0})) : [];
+  const spires  = hasCity   ? Array.from({length:6},(_,i)=>({x:30+i*60,h:30+(i*19)%60,w:12+(i*5)%15})) : [];
+
+  return (
+    <svg width="100%" viewBox="0 0 400 140" style={{display:'block',borderBottom:`1px solid ${accent}33`}} xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={skyDark}/><stop offset="100%" stopColor={skyLight}/>
+        </linearGradient>
+        <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={skyLight}/><stop offset="100%" stopColor="#050305"/>
+        </linearGradient>
+        <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fffff0" stopOpacity="0.9"/>
+          <stop offset="40%" stopColor="#e8e0c0" stopOpacity="0.6"/>
+          <stop offset="100%" stopColor="transparent" stopOpacity="0"/>
+        </radialGradient>
+        <radialGradient id="fireGlow" cx="50%" cy="80%" r="60%">
+          <stop offset="0%" stopColor="#e8b060" stopOpacity="0.5"/>
+          <stop offset="100%" stopColor="transparent" stopOpacity="0"/>
+        </radialGradient>
+        <filter id="blur2"><feGaussianBlur stdDeviation="2"/></filter>
+        <filter id="blur4"><feGaussianBlur stdDeviation="4"/></filter>
+      </defs>
+      <rect width="400" height="140" fill="url(#sky)"/>
+      {stars.map((s,i)=><circle key={i} cx={s.x} cy={s.y} r={s.r} fill="#ffffff" opacity={s.o}/>)}
+      {hasMoon&&<g><circle cx="320" cy="28" r="18" fill="url(#moonGlow)" filter="url(#blur4)"/><circle cx="320" cy="28" r="12" fill="#fffff8" opacity="0.9"/><circle cx="325" cy="24" r="9" fill={skyDark} opacity="0.85"/></g>}
+      {hasFire&&<rect width="400" height="140" fill="url(#fireGlow)"/>}
+      {hasWater&&<g><rect x="0" y="100" width="400" height="40" fill="#0a1525" opacity="0.8"/>{Array.from({length:6},(_,i)=><path key={i} d={`M ${i*70} 108 Q ${i*70+20} 103 ${i*70+40} 108`} stroke="#1a3a5a" strokeWidth="1.5" fill="none" opacity="0.5"/>)}{hasMoon&&<ellipse cx="320" cy="118" rx="8" ry="20" fill="#fffff0" opacity="0.1" filter="url(#blur2)"/>}</g>}
+      <rect x="0" y="105" width="400" height="35" fill="url(#ground)" opacity={hasWater?0.3:1}/>
+      <path d="M0,105 Q80,75 160,90 Q240,70 320,85 Q370,78 400,90 L400,105 Z" fill="#0a0a0f" opacity="0.8"/>
+      {trees.map((t,i)=><g key={i}><polygon points={`${t.x},${105-t.h} ${t.x-t.w/2},105 ${t.x+t.w/2},105`} fill="#0d1a0d" opacity="0.9"/><polygon points={`${t.x},${105-t.h-8} ${t.x-t.w/2+2},${105-t.h+12} ${t.x+t.w/2-2},${105-t.h+12}`} fill="#0f200f" opacity="0.85"/></g>)}
+      {pillars.map((p2,i)=><g key={i}><rect x={p2.x-5} y={105-p2.h} width={10} height={p2.h} fill="#1a1510" opacity="0.9"/>{!p2.broken&&<rect x={p2.x-8} y={105-p2.h-5} width={16} height={6} fill="#221c14" opacity="0.9"/>}{hasRunes&&<rect x={p2.x-3} y={105-p2.h/2} width={6} height={8} fill={accent} opacity="0.4" filter="url(#blur2)"/>}</g>)}
+      {spires.map((sp,i)=><g key={i}><rect x={sp.x} y={105-sp.h} width={sp.w} height={sp.h} fill="#0f0d12" opacity="0.95"/><polygon points={`${sp.x},${105-sp.h} ${sp.x+sp.w/2},${105-sp.h-20} ${sp.x+sp.w},${105-sp.h}`} fill="#0a080e" opacity="0.95"/>{hasFire&&i%2===0&&<circle cx={sp.x+sp.w/2} cy={105-sp.h-22} r="2" fill="#e8b060" opacity="0.7" filter="url(#blur2)"/>}</g>)}
+      {!hasForest&&!hasRuins&&!hasCity&&!hasWater&&<g><path d="M180,140 Q195,115 200,105 Q205,115 220,140" fill="#141008" opacity="0.8"/><path d="M0,120 Q100,108 200,105 Q300,108 400,120" stroke="#1a1508" strokeWidth="6" fill="none" opacity="0.6"/><rect x="197" y="85" width="6" height="20" fill="#1a1410" opacity="0.9"/><rect x="190" y="83" width="20" height="5" fill="#1a1410" opacity="0.9"/></g>}
+      {hasFog&&<rect x="0" y="85" width="400" height="55" fill={theme.fog} opacity="0.12" filter="url(#blur4)"/>}
+      {hasFire&&<><circle cx="200" cy="100" r="20" fill="#e8b060" opacity="0.12" filter="url(#blur4)"/><circle cx="200" cy="98" r="3" fill="#fff0a0" opacity="0.8"/><path d="M198,98 Q200,90 202,98" fill="#ff9a20" opacity="0.7"/></>}
+      {hasRunes&&Array.from({length:4},(_,i)=><circle key={i} cx={60+i*90} cy={90-(i%2)*15} r="6" fill={accent} opacity="0.25" filter="url(#blur4)"/>)}
+      <rect x="0" y="0" width="400" height="140" fill="url(#sky)" opacity="0.15"/>
+      <rect x="0" y="100" width="400" height="40" fill="#000000" opacity="0.4"/>
+    </svg>
+  );
+}
+
+// ─── UI Components ───────────────────────────────────────────
+
+function StatBar({ label, value, max, color }) {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
+      <span style={{fontSize:'0.68rem',color:'#6a5a4a',width:'18px',textAlign:'right'}}>{label}</span>
+      <div style={{width:'70px',height:'5px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',overflow:'hidden'}}>
+        <div style={{width:`${Math.max(0,Math.min(100,(value/max)*100))}%`,height:'100%',background:color,transition:'width 0.5s',borderRadius:'3px'}}/>
+      </div>
+      <span style={{fontSize:'0.68rem',color:'#6a5a4a',minWidth:'40px'}}>{value}/{max}</span>
+    </div>
+  );
+}
+
+function Notification({ notification }) {
+  if (!notification) return null;
+  const colors = { levelup:{bg:'#c9a96e',color:'#0a0a0f'}, spell:{bg:'#6a4ea8',color:'#fff'}, skill:{bg:'#3a6a5a',color:'#fff'}, info:{bg:'#2a3a5a',color:'#fff'} };
+  const c = colors[notification.type] || colors.info;
+  return (
+    <div style={{position:'fixed',top:'1rem',left:'50%',transform:'translateX(-50%)',background:c.bg,color:c.color,padding:'0.6rem 1.5rem',zIndex:999,fontFamily:'Georgia, serif',fontSize:'0.85rem',letterSpacing:'0.05em',boxShadow:'0 4px 20px rgba(0,0,0,0.6)',border:'1px solid rgba(255,255,255,0.2)',whiteSpace:'nowrap'}}>
+      {notification.msg}
+    </div>
+  );
+}
+
+function PanelButton({ icon, label, active, onClick }) {
+  return (
+    <button onClick={onClick} style={{background:active?'rgba(201,169,110,0.25)':'transparent',border:`1px solid ${active?'rgba(201,169,110,0.7)':'rgba(201,169,110,0.3)'}`,color:active?'#e8c87a':'#8a7a5a',padding:'0.2rem 0.5rem',cursor:'pointer',fontSize:'0.7rem',fontFamily:'Georgia, serif',transition:'all 0.15s'}}>
+      {icon} {label}
+    </button>
+  );
+}
+
+// ─── Main Game Component ──────────────────────────────────────
+
+export default function Game({ user, onLogout, onAdmin }) {
+  const [screen, setScreen]         = useState('loading');
+  const [character, setCharacter]   = useState(null);
+  const [messages, setMessages]     = useState([]);
+  const [displayLog, setDisplayLog] = useState([]);
+  const [input, setInput]           = useState('');
+  const [loading, setLoading]       = useState(false);
+  const [mood, setMood]             = useState('mysterious');
+  const [options, setOptions]       = useState([]);
+  const [currentScene, setCurrentScene] = useState(null);
+  const [notification, setNotification] = useState(null);
+  const [panel, setPanel]           = useState(null);
+  const [tempName, setTempName]     = useState('');
+  const [statAlloc, setStatAlloc]   = useState(null);
+  const logEndRef = useRef(null);
+
+  useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
+
+  const showNotif = useCallback((msg, type = 'info') => {
+    setNotification({ msg, type });
+    setTimeout(() => setNotification(null), 3500);
+  }, []);
+
+  // Load save from server on mount
+  useEffect(() => {
+    loadSave().then(saved => {
+      if (saved) {
+        setCharacter(saved.character);
+        setMessages(saved.messages || []);
+        setDisplayLog(saved.display_log || []);
+        setMood(saved.mood || 'mysterious');
+        setOptions(saved.options || []);
+        setCurrentScene(saved.scene || null);
+        setScreen('game');
+      } else {
+        setScreen('intro');
+      }
+    }).catch(err => {
+      console.error(err);
+      onLogout(); // session expired
+    });
+  }, [onLogout]);
+
+  const persistSave = useCallback(async (char, msgs, dlog, m, opts, scene) => {
+    try {
+      await writeSave({ character: char, messages: msgs, display_log: dlog, mood: m, options: opts, scene });
+    } catch (err) {
+      console.error('Save failed:', err);
+    }
+  }, []);
+
+  const callGM = useCallback(async (char, apiHistory, userText, isGameStart = false) => {
+    setLoading(true);
+    setOptions([]);
+    const playerEntry = { type: 'player', text: userText, hidden: isGameStart };
+
+    try {
+      const parsed = await sendToGM(char, [
+        ...apiHistory,
+        { role: 'user', content: userText },
+      ]);
+
+      const newApiHistory = [
+        ...apiHistory,
+        { role: 'user', content: userText },
+        { role: 'assistant', content: JSON.stringify(parsed) },
+      ];
+
+      const { character: newChar, leveledUp } = GameEngine.applyStateChanges(char, parsed.stateChanges);
+      if (parsed.stateChanges?.addSpell) showNotif(`✨ Learned: ${parsed.stateChanges.addSpell.name}`, 'spell');
+      if (parsed.stateChanges?.addSkill) showNotif(`📖 New skill: ${parsed.stateChanges.addSkill.name}`, 'skill');
+      if (leveledUp) showNotif(`⬆️ Level Up! You are now Level ${newChar.level}!`, 'levelup');
+
+      const newMood    = parsed.mood || 'mysterious';
+      const newOptions = parsed.options || [];
+      const newScene   = parsed.scenePrompt || null;
+      const gmEntry    = { type: 'gm', text: parsed.narrative, scenePrompt: newScene, mood: newMood };
+
+      setMessages(newApiHistory);
+      setDisplayLog(prev => {
+        const newLog = [...prev, playerEntry, gmEntry];
+        persistSave(newChar, newApiHistory, newLog, newMood, newOptions, newScene);
+        return newLog;
+      });
+      setCharacter(newChar);
+      setMood(newMood);
+      setOptions(newOptions);
+      setCurrentScene(newScene);
+    } catch (err) {
+      console.error('GM error:', err);
+      if (err.message === 'Session expired') { onLogout(); return; }
+      const errEntry = { type: 'gm', text: 'A strange silence falls... The oracle\'s voice fades. (Connection lost — please try again.)', mood: 'mysterious', scenePrompt: null };
+      setDisplayLog(prev => [...prev, errEntry]);
+    }
+    setLoading(false);
+  }, [persistSave, showNotif, onLogout]);
+
+  const handleSend = useCallback((text) => {
+    if (!text?.trim() || loading || !character) return;
+    setInput('');
+    callGM(character, messages, text.trim());
+  }, [loading, character, messages, callGM]);
+
+  const handleNameSubmit = () => {
+    if (!tempName.trim()) return;
+    setStatAlloc({ ...INITIAL_CHARACTER, name: tempName.trim() });
+    setScreen('statAlloc');
+  };
+
+  const adjustStat = (stat, delta) => {
+    setStatAlloc(prev => {
+      const newVal = prev.stats[stat] + delta;
+      if (newVal < 6 || newVal > 16) return prev;
+      if (prev.statPoints - delta < 0) return prev;
+      return { ...prev, stats: { ...prev.stats, [stat]: newVal }, statPoints: prev.statPoints - delta };
+    });
+  };
+
+  const finalizeCharacter = () => {
+    const derived = GameEngine.computeDerivedStats(statAlloc.stats);
+    const char = { ...statAlloc, ...derived, hp: derived.maxHp, mp: derived.maxMp, statPoints: 0 };
+    setCharacter(char);
+    setScreen('game');
+    const intro = `[GAME START] Character: ${char.name}, a classless Human with ${JSON.stringify(char.stats)}. Begin with a rich atmospheric opening scene at the crossroads of Valdenmoor at dusk. Introduce the world with mystery. Give 4 compelling starting options.`;
+    callGM(char, [], intro, true);
+  };
+
+  const handleNewGame = async () => {
+    if (!confirm('Begin a new story? Your current save will be lost.')) return;
+    await deleteSave();
+    setCharacter(null); setMessages([]); setDisplayLog([]);
+    setMood('mysterious'); setOptions([]); setCurrentScene(null);
+    setScreen('intro');
+  };
+
+  const theme = MOOD_THEMES[mood] || MOOD_THEMES.mysterious;
+
+  // ─── Loading ─────────────────────────────────────────────
+
+  if (screen === 'loading') return (
+    <div style={{background:'#08050f',color:'#9b72cf',height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif'}}>
+      <div style={{textAlign:'center',opacity:0.7}}>
+        <div style={{fontSize:'2rem',marginBottom:'0.75rem'}}>⚔</div>
+        <div style={{fontSize:'0.9rem',letterSpacing:'0.2em'}}>LOADING...</div>
+      </div>
+    </div>
+  );
+
+  // ─── Intro ───────────────────────────────────────────────
+
+  if (screen === 'intro') return (
+    <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 60%, #0a0508 100%)',color:'#c9a96e',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',textAlign:'center',padding:'2rem'}}>
+      <div style={{fontSize:'2.5rem',marginBottom:'0.5rem',letterSpacing:'0.1em'}}>⚔</div>
+      <h1 style={{fontSize:'2.2rem',fontWeight:'normal',letterSpacing:'0.2em',marginBottom:'0.4rem',color:'#e8c87a'}}>VALDENMOOR</h1>
+      <div style={{letterSpacing:'0.35em',fontSize:'0.75rem',color:'#6a5a4a',marginBottom:'2rem'}}>CHRONICLES</div>
+      <div style={{width:'60px',height:'1px',background:'#c9a96e',opacity:0.4,marginBottom:'2rem'}}/>
+      <p style={{maxWidth:'420px',lineHeight:'1.9',color:'#8a7a6a',marginBottom:'2.5rem',fontSize:'0.9rem'}}>
+        A classless open world of mystery and intrigue. Learn spells from those willing to teach. Uncover the secrets of the Forgetting. Nothing in Valdenmoor is as it seems.
+      </p>
+      <button onClick={() => setScreen('name')} style={{background:'transparent',border:'2px solid #c9a96e66',color:'#c9a96e',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.15em',cursor:'pointer',fontFamily:'Georgia, serif',transition:'all 0.25s'}}
+        onMouseOver={e=>{e.target.style.background='rgba(201,169,110,0.15)';e.target.style.borderColor='#c9a96e'}}
+        onMouseOut={e=>{e.target.style.background='transparent';e.target.style.borderColor='#c9a96e66'}}>
+        BEGIN YOUR STORY
+      </button>
+      <button onClick={onLogout} style={{marginTop:'2rem',background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.65rem',fontFamily:'Georgia, serif',letterSpacing:'0.1em'}}>
+        sign out ({user.username})
+      </button>
+    </div>
+  );
+
+  // ─── Name ────────────────────────────────────────────────
+
+  if (screen === 'name') return (
+    <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
+      <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'1.5rem'}}>YOUR NAME</div>
+      <input value={tempName} onChange={e=>setTempName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleNameSubmit()}
+        placeholder="Traveler..." autoFocus
+        style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.5)',color:'#e8c87a',fontSize:'1.8rem',textAlign:'center',padding:'0.5rem 1rem',fontFamily:'Georgia, serif',outline:'none',width:'280px',marginBottom:'2.5rem'}}/>
+      <button onClick={handleNameSubmit} disabled={!tempName.trim()} style={{background:'transparent',border:'1px solid rgba(201,169,110,0.5)',color:'#c9a96e',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:tempName.trim()?'pointer':'not-allowed',fontFamily:'Georgia, serif',letterSpacing:'0.1em',opacity:tempName.trim()?1:0.4}}>
+        Continue →
+      </button>
+    </div>
+  );
+
+  // ─── Stat Allocation ─────────────────────────────────────
+
+  if (screen === 'statAlloc' && statAlloc) return (
+    <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
+      <div style={{color:'#6a5a4a',fontSize:'0.7rem',letterSpacing:'0.2em',marginBottom:'0.5rem'}}>FORGE YOUR NATURE</div>
+      <h2 style={{fontWeight:'normal',fontSize:'1.3rem',letterSpacing:'0.1em',marginBottom:'0.25rem'}}>{statAlloc.name}</h2>
+      <p style={{color:'#6a5a4a',fontSize:'0.75rem',marginBottom:'0.5rem'}}>
+        Points remaining: <span style={{color:statAlloc.statPoints>0?'#e8c87a':'#4caf7a'}}>{statAlloc.statPoints}</span>
+      </p>
+      <p style={{color:'#4a3a2a',fontSize:'0.7rem',marginBottom:'1.5rem'}}>Min 6 · Max 16 · Base 8</p>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'0.6rem',marginBottom:'1.5rem',width:'100%',maxWidth:'420px'}}>
+        {Object.entries(statAlloc.stats).map(([stat, val]) => {
+          const mod = Math.floor((val-10)/2);
+          return (
+            <div key={stat} style={{background:'rgba(201,169,110,0.06)',border:'1px solid rgba(201,169,110,0.2)',padding:'0.6rem 0.5rem',textAlign:'center'}}>
+              <div style={{fontSize:'0.65rem',color:'#6a5a4a',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>{stat}</div>
+              <div style={{fontSize:'0.6rem',color:'#4a3a2a',marginBottom:'0.4rem'}}>{STAT_LABELS[stat]}</div>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'0.4rem'}}>
+                <button onClick={()=>adjustStat(stat,-1)} style={{background:'transparent',border:'1px solid rgba(201,169,110,0.4)',color:'#c9a96e',width:'22px',height:'22px',cursor:'pointer',fontSize:'0.9rem',lineHeight:1}}>−</button>
+                <span style={{fontSize:'1.1rem',color:'#e8c87a',minWidth:'20px'}}>{val}</span>
+                <button onClick={()=>adjustStat(stat,1)} style={{background:'transparent',border:'1px solid rgba(201,169,110,0.4)',color:'#c9a96e',width:'22px',height:'22px',cursor:'pointer',fontSize:'0.9rem',lineHeight:1}}>+</button>
+              </div>
+              <div style={{fontSize:'0.65rem',color:mod>=0?'#4caf7a':'#c94a4a',marginTop:'0.2rem'}}>{mod>=0?'+':''}{mod}</div>
+            </div>
+          );
+        })}
+      </div>
+      <button onClick={finalizeCharacter} disabled={statAlloc.statPoints!==0} style={{background:statAlloc.statPoints===0?'rgba(201,169,110,0.15)':'transparent',border:`2px solid ${statAlloc.statPoints===0?'#c9a96e':'#333'}`,color:statAlloc.statPoints===0?'#c9a96e':'#444',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.1em',cursor:statAlloc.statPoints===0?'pointer':'not-allowed',fontFamily:'Georgia, serif',transition:'all 0.2s'}}>
+        {statAlloc.statPoints>0?`Spend ${statAlloc.statPoints} more point${statAlloc.statPoints!==1?'s':''}` : 'Enter Valdenmoor →'}
+      </button>
+    </div>
+  );
+
+  // ─── Main Game Screen ────────────────────────────────────
+
+  if (screen === 'game' && character) {
+    const hpColor = character.hp/character.maxHp>0.6?'#4caf7a':character.hp/character.maxHp>0.3?'#e8c87a':'#c94a4a';
+    return (
+      <div style={{background:theme.bg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:'#d4c4a0',transition:'background 2s ease',maxWidth:'860px',margin:'0 auto'}}>
+        <Notification notification={notification}/>
+
+        {/* HEADER */}
+        <div style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.5rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem',position:'sticky',top:0,zIndex:100}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'0.4rem'}}>
+            <div>
+              <span style={{color:'#e8c87a',fontSize:'0.95rem'}}>{character.name}</span>
+              <span style={{color:'#4a3a2a',fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
+              <span style={{color:'#6a5a4a',fontSize:'0.75rem'}}>Lv {character.level}</span>
+              <span style={{color:'#4a3a2a',fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
+              <span style={{color:'#5a6a4a',fontSize:'0.7rem',fontStyle:'italic'}}>
+                {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+              </span>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
+              <span style={{color:'#c9a96e',fontSize:'0.8rem'}}>💰 {character.gold}g</span>
+              {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:'#4a3a2a',cursor:'pointer',fontSize:'0.6rem',fontFamily:'Georgia, serif'}}>admin</button>}
+              <button onClick={onLogout} style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.6rem',fontFamily:'Georgia, serif'}}>sign out</button>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:'0.75rem',flexWrap:'wrap',alignItems:'center'}}>
+            <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
+            <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
+            <StatBar label="XP" value={character.xp} max={character.xpToNext} color={theme.accent}/>
+          </div>
+          <div style={{display:'flex',gap:'0.35rem',flexWrap:'wrap'}}>
+            {[['📊','Stats'],['🎒','Pack'],['✨','Spells'],['📜','Lore']].map(([icon,label])=>(
+              <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
+            ))}
+          </div>
+        </div>
+
+        {/* PANELS */}
+        {panel==='Stats'&&(
+          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.5rem',maxWidth:'400px'}}>
+              {Object.entries(character.stats).map(([s,v])=>{
+                const mod=Math.floor((v-10)/2);
+                return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:'1px solid rgba(201,169,110,0.15)'}}>
+                  <div style={{color:'#6a5a4a',fontSize:'0.6rem',letterSpacing:'0.1em'}}>{s}</div>
+                  <div style={{color:'#e8c87a',fontSize:'1.2rem'}}>{v}</div>
+                  <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.65rem'}}>{mod>=0?'+':''}{mod}</div>
+                </div>;
+              })}
+            </div>
+            {character.statPoints>0&&<div style={{color:'#e8c87a',fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
+            {character.skills.length>0&&<div style={{marginTop:'0.5rem',borderTop:'1px solid rgba(201,169,110,0.1)',paddingTop:'0.5rem'}}>
+              {character.skills.map(sk=><div key={sk.name} style={{fontSize:'0.78rem',color:'#c9a96e',marginBottom:'0.2rem'}}>· <strong>{sk.name}</strong> — <span style={{color:'#6a5a4a'}}>{sk.description}</span></div>)}
+            </div>}
+          </div>
+        )}
+
+        {panel==='Pack'&&(
+          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
+            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
+            {character.inventory.length===0
+              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
+              : (() => {
+                  const counts={};
+                  character.inventory.forEach(item=>{counts[item]=(counts[item]||0)+1;});
+                  return Object.entries(counts).map(([item,count])=>(
+                    <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:'1px solid rgba(201,169,110,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span>· {item}</span>
+                      {count>1&&<span style={{color:'#6a5a4a',fontSize:'0.72rem'}}>×{count}</span>}
+                    </div>
+                  ));
+                })()
+            }
+            <div style={{marginTop:'0.6rem',color:'#3a2a1a',fontSize:'0.65rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
+              Use any item by describing it — "I throw a stone...", "I use the rope to..."
+            </div>
+          </div>
+        )}
+
+        {panel==='Spells'&&(
+          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
+            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
+            {character.spells.length===0
+              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach.</div>
+              : character.spells.map((sp,i)=>(
+                <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
+                  <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost} MP)</span></div>
+                  <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description}</div>
+                  <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic'}}>Taught by {sp.taughtBy}</div>
+                </div>
+              ))
+            }
+          </div>
+        )}
+
+        {panel==='Lore'&&(
+          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
+            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
+            {Object.keys(character.flags).length===0
+              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet.</div>
+              : Object.entries(character.flags).filter(([k])=>!k.startsWith('notable_')).map(([k,v])=>(
+                  <div key={k} style={{color:'#c9a96e',fontSize:'0.78rem',padding:'0.15rem 0'}}>· {k.replace(/_/g,' ')}: <span style={{color:'#6a5a4a'}}>{String(v)}</span></div>
+                ))
+            }
+            <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>KNOWN LOCATIONS</div>
+            {character.knownLocations.map(loc=>(
+              <div key={loc} style={{color:'#5a7a5a',fontSize:'0.78rem'}}>
+                · {loc.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+                {loc===character.location&&<span style={{color:'#4a5a3a',fontSize:'0.65rem'}}> ← here</span>}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* NARRATIVE LOG */}
+        <div style={{flex:1,overflowY:'auto'}}>
+          {displayLog.map((entry,i)=>{
+            if (entry.hidden) return null;
+            if (entry.type==='player') return (
+              <div key={i} style={{padding:'0.6rem 1rem',marginBottom:'0.25rem'}}>
+                <div style={{display:'flex',alignItems:'flex-start',gap:'0.5rem',padding:'0.5rem 0.75rem',background:'rgba(201,169,110,0.06)',borderLeft:'2px solid rgba(201,169,110,0.4)'}}>
+                  <span style={{color:'#5a4a3a',fontSize:'0.68rem',marginTop:'0.2rem',whiteSpace:'nowrap'}}>You</span>
+                  <span style={{color:'#b09a70',fontStyle:'italic',fontSize:'0.88rem',lineHeight:'1.6'}}>{entry.text}</span>
+                </div>
+              </div>
+            );
+            const entryTheme = MOOD_THEMES[entry.mood] || MOOD_THEMES.mysterious;
+            return (
+              <div key={i} style={{marginBottom:'0.5rem'}}>
+                {entry.scenePrompt&&<div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>}
+                <div style={{padding:'1rem 1rem 0.75rem',background:'rgba(0,0,0,0.2)',borderLeft:`2px solid ${entryTheme.accent}33`}}>
+                  <div style={{lineHeight:'1.95',fontSize:'0.92rem',color:'#d4c4a0',whiteSpace:'pre-wrap'}}>{entry.text}</div>
+                </div>
+              </div>
+            );
+          })}
+          {loading&&<div style={{textAlign:'center',padding:'1.5rem',color:'#4a3a5a',fontStyle:'italic',fontSize:'0.85rem',letterSpacing:'0.1em'}}>✦ &nbsp; the oracle stirs &nbsp; ✦</div>}
+          <div ref={logEndRef}/>
+        </div>
+
+        {/* OPTIONS */}
+        {options.length>0&&!loading&&(
+          <div style={{padding:'0.6rem 0.75rem 0.5rem',background:'rgba(0,0,0,0.35)',borderTop:'1px solid rgba(201,169,110,0.12)'}}>
+            <div style={{fontSize:'0.62rem',color:'#4a3a2a',letterSpacing:'0.12em',marginBottom:'0.4rem',textAlign:'center'}}>
+              SUGGESTED ACTIONS — or type anything below
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:options.length>2?'1fr 1fr':'1fr',gap:'0.35rem'}}>
+              {options.map((opt,i)=>(
+                <button key={i} onClick={()=>handleSend(opt)} style={{background:'rgba(201,169,110,0.05)',border:'1px solid rgba(201,169,110,0.22)',color:'#b09a70',padding:'0.5rem 0.65rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.8rem',textAlign:'left',lineHeight:'1.5',transition:'all 0.15s'}}
+                  onMouseOver={e=>{e.currentTarget.style.background='rgba(201,169,110,0.15)';e.currentTarget.style.color='#e8c87a'}}
+                  onMouseOut={e=>{e.currentTarget.style.background='rgba(201,169,110,0.05)';e.currentTarget.style.color='#b09a70'}}>
+                  <span style={{color:'#4a3a2a',marginRight:'0.4rem',fontSize:'0.65rem'}}>{['I','II','III','IV'][i]}.</span>
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* INPUT */}
+        <div style={{padding:'0.5rem 0.75rem 0.6rem',background:'rgba(0,0,0,0.6)',borderTop:'1px solid rgba(201,169,110,0.15)'}}>
+          <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
+              placeholder={INPUT_PLACEHOLDERS[Math.floor(Date.now()/30000)%INPUT_PLACEHOLDERS.length]}
+              disabled={loading}
+              style={{flex:1,background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.3)',color:'#d4c4a0',fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
+            <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()} style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.2)'}`,color:input.trim()?'#c9a96e':'#4a3a2a',padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+          </div>
+        </div>
+
+        {/* FOOTER */}
+        <div style={{textAlign:'center',padding:'0.3rem',background:'rgba(0,0,0,0.4)',borderTop:'1px solid rgba(201,169,110,0.08)'}}>
+          <button onClick={handleNewGame} style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.65rem',fontFamily:'Georgia, serif',letterSpacing:'0.1em'}}>
+            ✝ new game
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return null;
+}
