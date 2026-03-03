@@ -21,6 +21,20 @@ CREATE TABLE IF NOT EXISTS saves (
   updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- NPC relationship + memory persistence per player
+CREATE TABLE IF NOT EXISTS npc_states (
+  id                 SERIAL PRIMARY KEY,
+  user_id            INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  npc_id             TEXT NOT NULL,
+  relationship       INTEGER DEFAULT 0,        -- -100 to +100
+  interaction_count  INTEGER DEFAULT 0,
+  memory             JSONB NOT NULL DEFAULT '[]',   -- last 8 { day, summary } entries
+  teaching_progress  JSONB NOT NULL DEFAULT '{}',   -- { "spell_id": { stage:N, tasks_done:N } }
+  flags              JSONB NOT NULL DEFAULT '{}',
+  updated_at         TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id, npc_id)
+);
+
 -- Insert your admin account (change username/password before running)
 -- Password here is "changeme" — update immediately after first login
 INSERT INTO users (username, password, is_admin)

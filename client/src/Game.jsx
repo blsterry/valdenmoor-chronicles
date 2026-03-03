@@ -1,16 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { sendToGM, loadSave, writeSave, deleteSave, logout } from './api.js';
+import { sendToGM, loadSave, writeSave, deleteSave, logout,
+         loadNpcStates, updateNpcStates, fastTravel } from './api.js';
+import WorldMap from './WorldMap.jsx';
 
-// ─── Constants ───────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────────
 
 const INITIAL_CHARACTER = {
   name: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
   stats: { STR: 8, DEX: 8, INT: 8, WIS: 8, CON: 8, CHA: 8 },
   hp: 20, maxHp: 20, mp: 10, maxMp: 10, gold: 15,
   inventory: ["Worn Traveler's Cloak", 'Flint & Steel', 'Waterskin', '3x Hardtack'],
-  spells: [], skills: [], statPoints: 10,
-  location: 'crossroads', knownLocations: ['crossroads'],
-  npcRelations: {}, flags: {}, dayCount: 1,
+  spells: [],
+  spellLearning: [],   // [{ spellId, spellName, stage, totalStages, teacherNpcId, partialNote }]
+  skills: [],          // [{ id, name, tier, tierName, xp, xpToNext, description, taughtBy }]
+  statPoints: 10,
+  location: 'crossroads',
+  knownLocations: ['crossroads'],
+  waypoints: [],
+  npcRelations: {},
+  flags: {},
+  dayCount: 1,
 };
 
 const STAT_LABELS = {
@@ -38,20 +47,21 @@ const INPUT_PLACEHOLDERS = [
   'I tear a strip from my cloak and use it to bind the wound',
   'I climb the oak tree to get a better view of the road',
   'I sit at the bar and listen to the conversations around me',
-  'I draw my knife and hold it behind my back before answering',
-  'I ask the innkeeper if anyone matching that description passed through',
 ];
 
-// ─── Game Engine ─────────────────────────────────────────────
+// ─── Game Engine ─────────────────────────────────────────────────────────────
 
 const GameEngine = {
   applyStateChanges(character, sc) {
-    if (!sc) return { character, leveledUp: false };
+    if (!sc) return { character, leveledUp: false, skillNotices: [] };
     let c = { ...character };
+    const skillNotices = [];
+
     if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
     if (sc.mp != null)   c.mp   = Math.max(0, Math.min(sc.mp, c.maxMp));
     if (sc.gold != null) c.gold = Math.max(0, sc.gold);
     if (sc.location)     c.location = sc.location;
+
     if (sc.addInventory?.length)    c.inventory = [...c.inventory, ...sc.addInventory];
     if (sc.removeInventory?.length) {
       let inv = [...c.inventory];
@@ -61,15 +71,97 @@ const GameEngine = {
       });
       c.inventory = inv;
     }
-    if (sc.addSpell)         c.spells = [...c.spells, sc.addSpell];
-    if (sc.addSkill)         c.skills = [...c.skills, sc.addSkill];
+
+    // Full spell added (learning complete or single-stage)
+    if (sc.addSpell) {
+      c.spells = [...c.spells, sc.addSpell];
+      // Remove from spellLearning if it was there
+      c.spellLearning = (c.spellLearning || []).filter(sl => sl.spellId !== sc.addSpell.id);
+    }
+
+    // Partial spell stage added
+    if (sc.addSpellStage) {
+      const { spellId, spellName, stage, totalStages, teacherNpcId, partialNote } = sc.addSpellStage;
+      const existing = (c.spellLearning || []).findIndex(sl => sl.spellId === spellId);
+      if (existing >= 0) {
+        const updated = [...c.spellLearning];
+        updated[existing] = { ...updated[existing], stage, partialNote };
+        c.spellLearning = updated;
+      } else {
+        c.spellLearning = [...(c.spellLearning || []), { spellId, spellName, stage, totalStages, teacherNpcId, partialNote }];
+      }
+    }
+
+    // Initial skill addition (Tier 1, first lesson)
+    if (sc.addSkill) {
+      const newSkill = {
+        id: sc.addSkill.id || sc.addSkill.name?.toLowerCase().replace(/\s+/g, '_'),
+        name: sc.addSkill.name,
+        tier: sc.addSkill.tier || 1,
+        tierName: sc.addSkill.tierName || 'Novice',
+        xp: 0,
+        xpToNext: sc.addSkill.xpToNext || 50,
+        description: sc.addSkill.description || '',
+        taughtBy: sc.addSkill.taughtBy || '',
+      };
+      // Only add if not already present
+      if (!c.skills.some(s => s.id === newSkill.id)) {
+        c.skills = [...c.skills, newSkill];
+      }
+    }
+
+    // Skill XP award
+    if (sc.skillXP) {
+      const { skillId, amount } = sc.skillXP;
+      const idx = c.skills.findIndex(s => s.id === skillId);
+      if (idx >= 0) {
+        const skills = [...c.skills];
+        const sk = { ...skills[idx] };
+        sk.xp = (sk.xp || 0) + (amount || 0);
+        if (sk.xpToNext && sk.xp >= sk.xpToNext) {
+          skillNotices.push({ type: 'skillready', msg: `⚔ ${sk.name} is ready to advance — seek a teacher or prove your mastery!` });
+        }
+        skills[idx] = sk;
+        c.skills = skills;
+      }
+    }
+
+    // Skill tier update (advancement)
+    if (sc.updateSkill) {
+      const updated = sc.updateSkill;
+      const idx = c.skills.findIndex(s => s.id === updated.id);
+      if (idx >= 0) {
+        const skills = [...c.skills];
+        skills[idx] = {
+          ...skills[idx],
+          tier: updated.tier,
+          tierName: updated.tierName,
+          xp: updated.xp ?? 0,
+          xpToNext: updated.xpToNext,
+          description: updated.description || skills[idx].description,
+        };
+        c.skills = skills;
+      }
+    }
+
     if (sc.addKnownLocation) c.knownLocations = [...new Set([...c.knownLocations, sc.addKnownLocation])];
+
+    // Waypoint addition
+    if (sc.addWaypoint) {
+      const wp = sc.addWaypoint;
+      if (!c.waypoints.includes(wp)) {
+        c.waypoints = [...c.waypoints, wp];
+      }
+    }
+
     if (sc.npcRelationChange) {
       c.npcRelations = { ...c.npcRelations };
       for (const [npc, delta] of Object.entries(sc.npcRelationChange))
         c.npcRelations[npc] = (c.npcRelations[npc] || 0) + delta;
     }
+
     if (sc.addQuestFlag) c.flags = { ...c.flags, ...sc.addQuestFlag };
+
     if (sc.xp) {
       c.xp += sc.xp;
       if (c.xp >= c.xpToNext || sc.levelUp) {
@@ -80,10 +172,11 @@ const GameEngine = {
         const conMod = Math.floor((c.stats.CON - 10) / 2);
         c.maxHp += conMod + 3;
         c.hp = Math.min(c.hp + conMod + 3, c.maxHp);
-        return { character: c, leveledUp: true };
+        return { character: c, leveledUp: true, skillNotices };
       }
     }
-    return { character: c, leveledUp: false };
+
+    return { character: c, leveledUp: false, skillNotices };
   },
 
   computeDerivedStats(stats) {
@@ -94,7 +187,7 @@ const GameEngine = {
   },
 };
 
-// ─── Scene Illustration (SVG) ────────────────────────────────
+// ─── Scene Illustration (SVG) ─────────────────────────────────────────────────
 
 function SceneIllustration({ prompt, mood }) {
   const theme = MOOD_THEMES[mood] || MOOD_THEMES.mysterious;
@@ -106,7 +199,8 @@ function SceneIllustration({ prompt, mood }) {
   const hasRuins  = p.includes('ruin') || p.includes('stone') || p.includes('arch') || p.includes('ancient') || p.includes('dungeon');
   const hasCity   = p.includes('city') || p.includes('market') || p.includes('court') || p.includes('tower') || p.includes('spire');
   const hasFog    = p.includes('fog') || p.includes('mist') || p.includes('shadow');
-  const hasRunes  = p.includes('rune') || p.includes('glow') || p.includes('magic') || p.includes('arcane');
+  const hasRunes  = p.includes('rune') || p.includes('glow') || p.includes('magic') || p.includes('arcane') || p.includes('resonan');
+  const hasMoor   = p.includes('moor') || p.includes('heath') || p.includes('standing stone');
 
   const skyColors = {
     tense: ['#1a0505','#2d0808'], calm: ['#050d10','#0a1a20'],
@@ -120,25 +214,15 @@ function SceneIllustration({ prompt, mood }) {
   const trees   = hasForest ? Array.from({length:8},(_,i)=>({x:20+i*52,h:40+(i*17)%30,w:18+(i*7)%12})) : [];
   const pillars = hasRuins  ? Array.from({length:5},(_,i)=>({x:40+i*75,h:50+(i*23)%50,broken:i%2===0})) : [];
   const spires  = hasCity   ? Array.from({length:6},(_,i)=>({x:30+i*60,h:30+(i*19)%60,w:12+(i*5)%15})) : [];
+  const stones  = hasMoor   ? Array.from({length:4},(_,i)=>({x:60+i*80,h:20+(i*11)%25})) : [];
 
   return (
     <svg width="100%" viewBox="0 0 400 140" style={{display:'block',borderBottom:`1px solid ${accent}33`}} xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={skyDark}/><stop offset="100%" stopColor={skyLight}/>
-        </linearGradient>
-        <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={skyLight}/><stop offset="100%" stopColor="#050305"/>
-        </linearGradient>
-        <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#fffff0" stopOpacity="0.9"/>
-          <stop offset="40%" stopColor="#e8e0c0" stopOpacity="0.6"/>
-          <stop offset="100%" stopColor="transparent" stopOpacity="0"/>
-        </radialGradient>
-        <radialGradient id="fireGlow" cx="50%" cy="80%" r="60%">
-          <stop offset="0%" stopColor="#e8b060" stopOpacity="0.5"/>
-          <stop offset="100%" stopColor="transparent" stopOpacity="0"/>
-        </radialGradient>
+        <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={skyDark}/><stop offset="100%" stopColor={skyLight}/></linearGradient>
+        <linearGradient id="ground" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={skyLight}/><stop offset="100%" stopColor="#050305"/></linearGradient>
+        <radialGradient id="moonGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#fffff0" stopOpacity="0.9"/><stop offset="40%" stopColor="#e8e0c0" stopOpacity="0.6"/><stop offset="100%" stopColor="transparent" stopOpacity="0"/></radialGradient>
+        <radialGradient id="fireGlow" cx="50%" cy="80%" r="60%"><stop offset="0%" stopColor="#e8b060" stopOpacity="0.5"/><stop offset="100%" stopColor="transparent" stopOpacity="0"/></radialGradient>
         <filter id="blur2"><feGaussianBlur stdDeviation="2"/></filter>
         <filter id="blur4"><feGaussianBlur stdDeviation="4"/></filter>
       </defs>
@@ -152,7 +236,8 @@ function SceneIllustration({ prompt, mood }) {
       {trees.map((t,i)=><g key={i}><polygon points={`${t.x},${105-t.h} ${t.x-t.w/2},105 ${t.x+t.w/2},105`} fill="#0d1a0d" opacity="0.9"/><polygon points={`${t.x},${105-t.h-8} ${t.x-t.w/2+2},${105-t.h+12} ${t.x+t.w/2-2},${105-t.h+12}`} fill="#0f200f" opacity="0.85"/></g>)}
       {pillars.map((p2,i)=><g key={i}><rect x={p2.x-5} y={105-p2.h} width={10} height={p2.h} fill="#1a1510" opacity="0.9"/>{!p2.broken&&<rect x={p2.x-8} y={105-p2.h-5} width={16} height={6} fill="#221c14" opacity="0.9"/>}{hasRunes&&<rect x={p2.x-3} y={105-p2.h/2} width={6} height={8} fill={accent} opacity="0.4" filter="url(#blur2)"/>}</g>)}
       {spires.map((sp,i)=><g key={i}><rect x={sp.x} y={105-sp.h} width={sp.w} height={sp.h} fill="#0f0d12" opacity="0.95"/><polygon points={`${sp.x},${105-sp.h} ${sp.x+sp.w/2},${105-sp.h-20} ${sp.x+sp.w},${105-sp.h}`} fill="#0a080e" opacity="0.95"/>{hasFire&&i%2===0&&<circle cx={sp.x+sp.w/2} cy={105-sp.h-22} r="2" fill="#e8b060" opacity="0.7" filter="url(#blur2)"/>}</g>)}
-      {!hasForest&&!hasRuins&&!hasCity&&!hasWater&&<g><path d="M180,140 Q195,115 200,105 Q205,115 220,140" fill="#141008" opacity="0.8"/><path d="M0,120 Q100,108 200,105 Q300,108 400,120" stroke="#1a1508" strokeWidth="6" fill="none" opacity="0.6"/><rect x="197" y="85" width="6" height="20" fill="#1a1410" opacity="0.9"/><rect x="190" y="83" width="20" height="5" fill="#1a1410" opacity="0.9"/></g>}
+      {stones.map((st,i)=><g key={i}><rect x={st.x-3} y={105-st.h} width={7} height={st.h} fill="#1a1508" opacity="0.9"/><rect x={st.x-5} y={105-st.h-4} width={11} height={5} fill="#221c08" opacity="0.9"/>{hasRunes&&<rect x={st.x-1} y={105-st.h+5} width={3} height={4} fill={accent} opacity="0.3" filter="url(#blur2)"/>}</g>)}
+      {!hasForest&&!hasRuins&&!hasCity&&!hasWater&&!hasMoor&&<g><path d="M180,140 Q195,115 200,105 Q205,115 220,140" fill="#141008" opacity="0.8"/><path d="M0,120 Q100,108 200,105 Q300,108 400,120" stroke="#1a1508" strokeWidth="6" fill="none" opacity="0.6"/></g>}
       {hasFog&&<rect x="0" y="85" width="400" height="55" fill={theme.fog} opacity="0.12" filter="url(#blur4)"/>}
       {hasFire&&<><circle cx="200" cy="100" r="20" fill="#e8b060" opacity="0.12" filter="url(#blur4)"/><circle cx="200" cy="98" r="3" fill="#fff0a0" opacity="0.8"/><path d="M198,98 Q200,90 202,98" fill="#ff9a20" opacity="0.7"/></>}
       {hasRunes&&Array.from({length:4},(_,i)=><circle key={i} cx={60+i*90} cy={90-(i%2)*15} r="6" fill={accent} opacity="0.25" filter="url(#blur4)"/>)}
@@ -162,7 +247,7 @@ function SceneIllustration({ prompt, mood }) {
   );
 }
 
-// ─── UI Components ───────────────────────────────────────────
+// ─── UI Components ────────────────────────────────────────────────────────────
 
 function StatBar({ label, value, max, color }) {
   return (
@@ -176,12 +261,33 @@ function StatBar({ label, value, max, color }) {
   );
 }
 
+function XPBar({ value, max, color }) {
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
+      <span style={{fontSize:'0.68rem',color:'#6a5a4a',width:'18px',textAlign:'right'}}>XP</span>
+      <div style={{width:'70px',height:'5px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',overflow:'hidden'}}>
+        <div style={{width:`${Math.max(0,Math.min(100,(value/max)*100))}%`,height:'100%',background:color,transition:'width 0.5s',borderRadius:'3px'}}/>
+      </div>
+      <span style={{fontSize:'0.68rem',color:'#6a5a4a',minWidth:'54px'}}>{value}/{max} xp</span>
+    </div>
+  );
+}
+
 function Notification({ notification }) {
   if (!notification) return null;
-  const colors = { levelup:{bg:'#c9a96e',color:'#0a0a0f'}, spell:{bg:'#6a4ea8',color:'#fff'}, skill:{bg:'#3a6a5a',color:'#fff'}, info:{bg:'#2a3a5a',color:'#fff'} };
+  const colors = {
+    levelup:    { bg: '#c9a96e', color: '#0a0a0f' },
+    spell:      { bg: '#6a4ea8', color: '#fff' },
+    spellstage: { bg: '#4a3a7a', color: '#d0b8ff' },
+    skill:      { bg: '#3a6a5a', color: '#fff' },
+    skillready: { bg: '#2a4a3a', color: '#8fc47a' },
+    waypoint:   { bg: '#2a3a5a', color: '#7aafd4' },
+    travel:     { bg: '#1a2a3a', color: '#5a8aaa' },
+    info:       { bg: '#2a3a5a', color: '#fff' },
+  };
   const c = colors[notification.type] || colors.info;
   return (
-    <div style={{position:'fixed',top:'1rem',left:'50%',transform:'translateX(-50%)',background:c.bg,color:c.color,padding:'0.6rem 1.5rem',zIndex:999,fontFamily:'Georgia, serif',fontSize:'0.85rem',letterSpacing:'0.05em',boxShadow:'0 4px 20px rgba(0,0,0,0.6)',border:'1px solid rgba(255,255,255,0.2)',whiteSpace:'nowrap'}}>
+    <div style={{position:'fixed',top:'1rem',left:'50%',transform:'translateX(-50%)',background:c.bg,color:c.color,padding:'0.6rem 1.5rem',zIndex:999,fontFamily:'Georgia, serif',fontSize:'0.85rem',letterSpacing:'0.05em',boxShadow:'0 4px 20px rgba(0,0,0,0.6)',border:'1px solid rgba(255,255,255,0.2)',whiteSpace:'nowrap',maxWidth:'90vw',textAlign:'center'}}>
       {notification.msg}
     </div>
   );
@@ -195,34 +301,59 @@ function PanelButton({ icon, label, active, onClick }) {
   );
 }
 
-// ─── Main Game Component ──────────────────────────────────────
+function SkillProgressBar({ skill }) {
+  const pct = skill.xpToNext ? Math.min(100, ((skill.xp || 0) / skill.xpToNext) * 100) : 100;
+  const isReady = skill.xpToNext && (skill.xp || 0) >= skill.xpToNext;
+  return (
+    <div style={{marginBottom:'0.55rem',paddingBottom:'0.5rem',borderBottom:'1px solid rgba(201,169,110,0.08)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'0.2rem'}}>
+        <span style={{color:'#c9a96e',fontSize:'0.82rem'}}>⚔ {skill.name}</span>
+        <span style={{color:isReady?'#8fc47a':'#4a5a3a',fontSize:'0.65rem'}}>{isReady ? '★ Ready to advance' : `Tier ${skill.tier || 1}`}</span>
+      </div>
+      <div style={{color:'#7a6a5a',fontSize:'0.72rem',marginBottom:'0.2rem',fontStyle:'italic'}}>{skill.tierName || '—'}</div>
+      <div style={{color:'#5a4a3a',fontSize:'0.68rem',marginBottom:'0.3rem'}}>{skill.description}</div>
+      <div style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
+        <div style={{flex:1,height:'4px',background:'rgba(255,255,255,0.06)',borderRadius:'2px',overflow:'hidden'}}>
+          <div style={{width:`${pct}%`,height:'100%',background:isReady?'#8fc47a':'#4a6a5a',transition:'width 0.5s',borderRadius:'2px'}}/>
+        </div>
+        <span style={{fontSize:'0.62rem',color:'#4a3a2a'}}>{skill.xp || 0}/{skill.xpToNext || '—'}</span>
+      </div>
+      {skill.taughtBy && <div style={{color:'#3a2a1a',fontSize:'0.62rem',marginTop:'0.15rem',fontStyle:'italic'}}>Taught by {skill.taughtBy}</div>}
+    </div>
+  );
+}
+
+// ─── Main Game Component ──────────────────────────────────────────────────────
 
 export default function Game({ user, onLogout, onAdmin }) {
-  const [screen, setScreen]         = useState('loading');
-  const [character, setCharacter]   = useState(null);
-  const [messages, setMessages]     = useState([]);
-  const [displayLog, setDisplayLog] = useState([]);
-  const [input, setInput]           = useState('');
-  const [loading, setLoading]       = useState(false);
-  const [mood, setMood]             = useState('mysterious');
-  const [options, setOptions]       = useState([]);
+  const [screen, setScreen]           = useState('loading');
+  const [character, setCharacter]     = useState(null);
+  const [messages, setMessages]       = useState([]);
+  const [displayLog, setDisplayLog]   = useState([]);
+  const [input, setInput]             = useState('');
+  const [loading, setLoading]         = useState(false);
+  const [mood, setMood]               = useState('mysterious');
+  const [options, setOptions]         = useState([]);
   const [currentScene, setCurrentScene] = useState(null);
   const [notification, setNotification] = useState(null);
-  const [panel, setPanel]           = useState(null);
-  const [tempName, setTempName]     = useState('');
-  const [statAlloc, setStatAlloc]   = useState(null);
+  const [panel, setPanel]             = useState(null);
+  const [tempName, setTempName]       = useState('');
+  const [statAlloc, setStatAlloc]     = useState(null);
+  const [npcStates, setNpcStates]     = useState({});   // { npcId: { relationship, memory, ... } }
+  const [showMap, setShowMap]         = useState(false);
   const logEndRef = useRef(null);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
 
-  const showNotif = useCallback((msg, type = 'info') => {
+  const showNotif = useCallback((msg, type = 'info', duration = 4000) => {
     setNotification({ msg, type });
-    setTimeout(() => setNotification(null), 3500);
+    setTimeout(() => setNotification(null), duration);
   }, []);
 
-  // Load save from server on mount
+  // Load save and NPC states from server on mount
   useEffect(() => {
-    loadSave().then(saved => {
+    Promise.all([loadSave(), loadNpcStates()]).then(([saved, npcData]) => {
+      setNpcStates(npcData || {});
       if (saved) {
         setCharacter(saved.character);
         setMessages(saved.messages || []);
@@ -236,7 +367,7 @@ export default function Game({ user, onLogout, onAdmin }) {
       }
     }).catch(err => {
       console.error(err);
-      onLogout(); // session expired
+      onLogout();
     });
   }, [onLogout]);
 
@@ -257,7 +388,7 @@ export default function Game({ user, onLogout, onAdmin }) {
       const parsed = await sendToGM(char, [
         ...apiHistory,
         { role: 'user', content: userText },
-      ]);
+      ], npcStates);
 
       const newApiHistory = [
         ...apiHistory,
@@ -265,10 +396,49 @@ export default function Game({ user, onLogout, onAdmin }) {
         { role: 'assistant', content: JSON.stringify(parsed) },
       ];
 
-      const { character: newChar, leveledUp } = GameEngine.applyStateChanges(char, parsed.stateChanges);
-      if (parsed.stateChanges?.addSpell) showNotif(`✨ Learned: ${parsed.stateChanges.addSpell.name}`, 'spell');
-      if (parsed.stateChanges?.addSkill) showNotif(`📖 New skill: ${parsed.stateChanges.addSkill.name}`, 'skill');
-      if (leveledUp) showNotif(`⬆️ Level Up! You are now Level ${newChar.level}!`, 'levelup');
+      const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(char, parsed.stateChanges);
+
+      // Handle NPC state changes
+      if (parsed.npcStateChanges?.length > 0) {
+        const day = char.dayCount || 1;
+        await updateNpcStates(parsed.npcStateChanges, day);
+        // Update local state
+        setNpcStates(prev => {
+          const next = { ...prev };
+          for (const change of parsed.npcStateChanges) {
+            const { npcId, relationshipDelta = 0, memorySummary, teachingProgress, flags } = change;
+            const cur = next[npcId] || { relationship: 0, interactionCount: 0, memory: [], teachingProgress: {}, flags: {} };
+            const newRel = Math.max(-100, Math.min(100, cur.relationship + relationshipDelta));
+            const newMem = memorySummary
+              ? [...(cur.memory || []).slice(-7), { day, summary: memorySummary }]
+              : cur.memory;
+            next[npcId] = {
+              relationship: newRel,
+              interactionCount: (cur.interactionCount || 0) + (memorySummary ? 1 : 0),
+              memory: newMem,
+              teachingProgress: { ...(cur.teachingProgress || {}), ...(teachingProgress || {}) },
+              flags: { ...(cur.flags || {}), ...(flags || {}) },
+            };
+          }
+          return next;
+        });
+      }
+
+      // Notifications
+      if (parsed.stateChanges?.addSpell)
+        showNotif(`✨ Learned: ${parsed.stateChanges.addSpell.name}`, 'spell');
+      if (parsed.stateChanges?.addSpellStage)
+        showNotif(`📖 Spell progress: ${parsed.stateChanges.addSpellStage.spellName} Stage ${parsed.stateChanges.addSpellStage.stage}/${parsed.stateChanges.addSpellStage.totalStages}`, 'spellstage');
+      if (parsed.stateChanges?.addSkill)
+        showNotif(`⚔ New skill: ${parsed.stateChanges.addSkill.name} — ${parsed.stateChanges.addSkill.tierName || 'Tier 1'}`, 'skill');
+      if (parsed.stateChanges?.updateSkill)
+        showNotif(`⚔ ${parsed.stateChanges.updateSkill.name} advanced to ${parsed.stateChanges.updateSkill.tierName}!`, 'skill');
+      if (parsed.stateChanges?.addWaypoint)
+        showNotif(`⬡ Waypoint set: ${parsed.stateChanges.addWaypoint.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`, 'waypoint');
+      if (leveledUp)
+        showNotif(`⬆️ Level Up! You are now Level ${newChar.level}!`, 'levelup', 5000);
+      for (const notice of skillNotices)
+        showNotif(notice.msg, notice.type, 5000);
 
       const newMood    = parsed.mood || 'mysterious';
       const newOptions = parsed.options || [];
@@ -285,20 +455,102 @@ export default function Game({ user, onLogout, onAdmin }) {
       setMood(newMood);
       setOptions(newOptions);
       setCurrentScene(newScene);
+
     } catch (err) {
       console.error('GM error:', err);
       if (err.message === 'Session expired') { onLogout(); return; }
-      const errEntry = { type: 'gm', text: 'A strange silence falls... The oracle\'s voice fades. (Connection lost — please try again.)', mood: 'mysterious', scenePrompt: null };
+      const errEntry = { type: 'gm', text: "A strange silence falls... The oracle's voice fades. (Connection lost — please try again.)", mood: 'mysterious', scenePrompt: null };
       setDisplayLog(prev => [...prev, errEntry]);
     }
     setLoading(false);
-  }, [persistSave, showNotif, onLogout]);
+  }, [persistSave, showNotif, onLogout, npcStates]);
 
   const handleSend = useCallback((text) => {
     if (!text?.trim() || loading || !character) return;
     setInput('');
     callGM(character, messages, text.trim());
   }, [loading, character, messages, callGM]);
+
+  const handleFastTravel = useCallback(async (fromLoc, toLoc) => {
+    if (!character || loading) return;
+    setShowMap(false);
+    setLoading(true);
+    setOptions([]);
+
+    try {
+      const result = await fastTravel(fromLoc, toLoc, character, messages);
+
+      if (result.encounter && result.parsed) {
+        // Encounter: treat as a full GM response
+        const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(character, result.parsed.stateChanges);
+
+        const travelEntry = { type: 'player', text: `[Fast travel from ${fromLoc.replace(/_/g,' ')} to ${toLoc.replace(/_/g,' ')}]`, hidden: true };
+        const gmEntry     = { type: 'gm', text: result.parsed.narrative, scenePrompt: result.parsed.scenePrompt, mood: result.parsed.mood || 'tense' };
+        const newMood     = result.parsed.mood || 'tense';
+        const newOptions  = result.parsed.options || [];
+        const newScene    = result.parsed.scenePrompt || null;
+
+        const newApiHistory = [
+          ...messages,
+          { role: 'user', content: travelEntry.text },
+          { role: 'assistant', content: JSON.stringify(result.parsed) },
+        ];
+
+        setMessages(newApiHistory);
+        setDisplayLog(prev => {
+          const newLog = [...prev, travelEntry, gmEntry];
+          persistSave(newChar, newApiHistory, newLog, newMood, newOptions, newScene);
+          return newLog;
+        });
+        setCharacter(newChar);
+        setMood(newMood);
+        setOptions(newOptions);
+        setCurrentScene(newScene);
+        showNotif('⚠ The road had company.', 'tense');
+        if (leveledUp) showNotif(`⬆️ Level Up! You are now Level ${newChar.level}!`, 'levelup', 5000);
+        for (const notice of skillNotices) showNotif(notice.msg, notice.type);
+
+      } else {
+        // Clean travel — just update location
+        const newChar = { ...character, location: toLoc };
+        if (!newChar.knownLocations.includes(toLoc)) {
+          newChar.knownLocations = [...newChar.knownLocations, toLoc];
+        }
+        const locName = toLoc.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+        const travelEntry = { type: 'gm', text: result.travelDescription || `You arrive at ${locName} without incident.`, scenePrompt: null, mood: 'calm' };
+
+        setDisplayLog(prev => {
+          const newLog = [...prev, travelEntry];
+          persistSave(newChar, messages, newLog, 'calm', [], null);
+          return newLog;
+        });
+        setCharacter(newChar);
+        setMood('calm');
+        setOptions([]);
+        showNotif(`⬡ Arrived at ${locName}`, 'travel');
+        // Now call GM to generate the arrival scene
+        setTimeout(() => {
+          callGM(newChar, messages, `[ARRIVAL] ${character.name} has just arrived at ${locName} via fast travel. Generate a brief arrival scene with the current state of the location. Give 4 options.`);
+        }, 500);
+      }
+    } catch (err) {
+      console.error('Fast travel error:', err);
+      showNotif('Fast travel failed. Try again.', 'info');
+    }
+
+    setLoading(false);
+  }, [character, loading, messages, persistSave, callGM, showNotif]);
+
+  const handleSetWaypointFromMap = useCallback((locationId) => {
+    if (!character) return;
+    if (!character.knownLocations.includes(locationId)) return;
+    if (character.waypoints.includes(locationId)) return;
+    const newChar = { ...character, waypoints: [...character.waypoints, locationId] };
+    setCharacter(newChar);
+    const name = locationId.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
+    showNotif(`⬡ Waypoint marked: ${name}`, 'waypoint');
+    persistSave(newChar, messages, displayLog, mood, options, currentScene);
+  }, [character, messages, displayLog, mood, options, currentScene, persistSave, showNotif]);
 
   const handleNameSubmit = () => {
     if (!tempName.trim()) return;
@@ -320,7 +572,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     const char = { ...statAlloc, ...derived, hp: derived.maxHp, mp: derived.maxMp, statPoints: 0 };
     setCharacter(char);
     setScreen('game');
-    const intro = `[GAME START] Character: ${char.name}, a classless Human with ${JSON.stringify(char.stats)}. Begin with a rich atmospheric opening scene at the crossroads of Valdenmoor at dusk. Introduce the world with mystery. Give 4 compelling starting options.`;
+    const intro = `[GAME START] Character: ${char.name}, a classless Human with ${JSON.stringify(char.stats)}. Begin with a rich atmospheric opening scene at the crossroads of Valdenmoor at dusk. Introduce the world with mystery and the first hints of the Forgetting. Give 4 compelling starting options.`;
     callGM(char, [], intro, true);
   };
 
@@ -329,12 +581,13 @@ export default function Game({ user, onLogout, onAdmin }) {
     await deleteSave();
     setCharacter(null); setMessages([]); setDisplayLog([]);
     setMood('mysterious'); setOptions([]); setCurrentScene(null);
+    setNpcStates({});
     setScreen('intro');
   };
 
   const theme = MOOD_THEMES[mood] || MOOD_THEMES.mysterious;
 
-  // ─── Loading ─────────────────────────────────────────────
+  // ─── Loading ───────────────────────────────────────────────────────────────
 
   if (screen === 'loading') return (
     <div style={{background:'#08050f',color:'#9b72cf',height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif'}}>
@@ -345,7 +598,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     </div>
   );
 
-  // ─── Intro ───────────────────────────────────────────────
+  // ─── Intro ─────────────────────────────────────────────────────────────────
 
   if (screen === 'intro') return (
     <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 60%, #0a0508 100%)',color:'#c9a96e',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',textAlign:'center',padding:'2rem'}}>
@@ -357,7 +610,8 @@ export default function Game({ user, onLogout, onAdmin }) {
         People have been forgetting. Not small things — names, faces, whole years. It started in the city and spread outward. No one knows why.
         You are not from here. But the road brought you to the crossroads, and the crossroads has a way of keeping people.
       </p>
-      <button onClick={() => setScreen('name')} style={{background:'transparent',border:'2px solid #c9a96e66',color:'#c9a96e',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.15em',cursor:'pointer',fontFamily:'Georgia, serif',transition:'all 0.25s'}}
+      <button onClick={() => setScreen('name')}
+        style={{background:'transparent',border:'2px solid #c9a96e66',color:'#c9a96e',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.15em',cursor:'pointer',fontFamily:'Georgia, serif',transition:'all 0.25s'}}
         onMouseOver={e=>{e.target.style.background='rgba(201,169,110,0.15)';e.target.style.borderColor='#c9a96e'}}
         onMouseOut={e=>{e.target.style.background='transparent';e.target.style.borderColor='#c9a96e66'}}>
         BEGIN YOUR STORY
@@ -368,7 +622,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     </div>
   );
 
-  // ─── Name ────────────────────────────────────────────────
+  // ─── Name ──────────────────────────────────────────────────────────────────
 
   if (screen === 'name') return (
     <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
@@ -376,13 +630,14 @@ export default function Game({ user, onLogout, onAdmin }) {
       <input value={tempName} onChange={e=>setTempName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleNameSubmit()}
         placeholder="" autoFocus
         style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.5)',color:'#e8c87a',fontSize:'1.8rem',textAlign:'center',padding:'0.5rem 1rem',fontFamily:'Georgia, serif',outline:'none',width:'280px',marginBottom:'2.5rem'}}/>
-      <button onClick={handleNameSubmit} disabled={!tempName.trim()} style={{background:'transparent',border:'1px solid rgba(201,169,110,0.5)',color:'#c9a96e',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:tempName.trim()?'pointer':'not-allowed',fontFamily:'Georgia, serif',letterSpacing:'0.1em',opacity:tempName.trim()?1:0.4}}>
+      <button onClick={handleNameSubmit} disabled={!tempName.trim()}
+        style={{background:'transparent',border:'1px solid rgba(201,169,110,0.5)',color:'#c9a96e',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:tempName.trim()?'pointer':'not-allowed',fontFamily:'Georgia, serif',letterSpacing:'0.1em',opacity:tempName.trim()?1:0.4}}>
         Continue →
       </button>
     </div>
   );
 
-  // ─── Stat Allocation ─────────────────────────────────────
+  // ─── Stat Allocation ───────────────────────────────────────────────────────
 
   if (screen === 'statAlloc' && statAlloc) return (
     <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
@@ -409,19 +664,31 @@ export default function Game({ user, onLogout, onAdmin }) {
           );
         })}
       </div>
-      <button onClick={finalizeCharacter} disabled={statAlloc.statPoints!==0} style={{background:statAlloc.statPoints===0?'rgba(201,169,110,0.15)':'transparent',border:`2px solid ${statAlloc.statPoints===0?'#c9a96e':'#333'}`,color:statAlloc.statPoints===0?'#c9a96e':'#444',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.1em',cursor:statAlloc.statPoints===0?'pointer':'not-allowed',fontFamily:'Georgia, serif',transition:'all 0.2s'}}>
+      <button onClick={finalizeCharacter} disabled={statAlloc.statPoints!==0}
+        style={{background:statAlloc.statPoints===0?'rgba(201,169,110,0.15)':'transparent',border:`2px solid ${statAlloc.statPoints===0?'#c9a96e':'#333'}`,color:statAlloc.statPoints===0?'#c9a96e':'#444',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.1em',cursor:statAlloc.statPoints===0?'pointer':'not-allowed',fontFamily:'Georgia, serif',transition:'all 0.2s'}}>
         {statAlloc.statPoints>0?`Spend ${statAlloc.statPoints} more point${statAlloc.statPoints!==1?'s':''}` : 'Enter Valdenmoor →'}
       </button>
     </div>
   );
 
-  // ─── Main Game Screen ────────────────────────────────────
+  // ─── Main Game Screen ──────────────────────────────────────────────────────
 
   if (screen === 'game' && character) {
     const hpColor = character.hp/character.maxHp>0.6?'#4caf7a':character.hp/character.maxHp>0.3?'#e8c87a':'#c94a4a';
+
     return (
       <div style={{background:theme.bg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:'#d4c4a0',transition:'background 2s ease',maxWidth:'860px',margin:'0 auto'}}>
         <Notification notification={notification}/>
+
+        {/* WORLD MAP OVERLAY */}
+        {showMap && (
+          <WorldMap
+            character={character}
+            onFastTravel={handleFastTravel}
+            onSetWaypoint={handleSetWaypointFromMap}
+            onClose={() => setShowMap(false)}
+          />
+        )}
 
         {/* HEADER */}
         <div style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.5rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem',position:'sticky',top:0,zIndex:100}}>
@@ -444,16 +711,17 @@ export default function Game({ user, onLogout, onAdmin }) {
           <div style={{display:'flex',gap:'0.75rem',flexWrap:'wrap',alignItems:'center'}}>
             <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
             <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
-            <StatBar label="XP" value={character.xp} max={character.xpToNext} color={theme.accent}/>
+            <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
           </div>
           <div style={{display:'flex',gap:'0.35rem',flexWrap:'wrap'}}>
-            {[['📊','Stats'],['🎒','Pack'],['✨','Spells'],['📜','Lore']].map(([icon,label])=>(
+            {[['📊','Stats'],['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore']].map(([icon,label])=>(
               <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
             ))}
+            <PanelButton icon="🗺" label="Map" active={false} onClick={() => setShowMap(true)}/>
           </div>
         </div>
 
-        {/* PANELS */}
+        {/* STATS PANEL */}
         {panel==='Stats'&&(
           <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.5rem',maxWidth:'400px'}}>
@@ -467,12 +735,13 @@ export default function Game({ user, onLogout, onAdmin }) {
               })}
             </div>
             {character.statPoints>0&&<div style={{color:'#e8c87a',fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
-            {character.skills.length>0&&<div style={{marginTop:'0.5rem',borderTop:'1px solid rgba(201,169,110,0.1)',paddingTop:'0.5rem'}}>
-              {character.skills.map(sk=><div key={sk.name} style={{fontSize:'0.78rem',color:'#c9a96e',marginBottom:'0.2rem'}}>· <strong>{sk.name}</strong> — <span style={{color:'#6a5a4a'}}>{sk.description}</span></div>)}
-            </div>}
+            <div style={{marginTop:'0.5rem',color:'#3a2a1a',fontSize:'0.65rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
+              Day {character.dayCount} · {character.race}
+            </div>
           </div>
         )}
 
+        {/* PACK PANEL */}
         {panel==='Pack'&&(
           <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
             <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
@@ -490,16 +759,33 @@ export default function Game({ user, onLogout, onAdmin }) {
                 })()
             }
             <div style={{marginTop:'0.6rem',color:'#3a2a1a',fontSize:'0.65rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
-              Use any item by describing it — "I throw a stone...", "I use the rope to..."
+              Use any item by describing it in the input below.
             </div>
           </div>
         )}
 
+        {/* SKILLS PANEL */}
+        {panel==='Skills'&&(
+          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
+            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.6rem'}}>SKILLS</div>
+            {character.skills.length===0
+              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>
+                  No skills yet. Skills are learned slowly from willing teachers — and teachers must be earned.
+                </div>
+              : character.skills.map(sk => <SkillProgressBar key={sk.id || sk.name} skill={sk}/>)
+            }
+            <div style={{marginTop:'0.5rem',color:'#3a2a1a',fontSize:'0.62rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
+              Skills advance through practice (XP) and meeting tier gate requirements. XP is awarded by the GM when you use a skill meaningfully.
+            </div>
+          </div>
+        )}
+
+        {/* SPELLS PANEL */}
         {panel==='Spells'&&(
           <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
             <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
-            {character.spells.length===0
-              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach.</div>
+            {character.spells.length===0 && (character.spellLearning?.length === 0 || !character.spellLearning)
+              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach. Magic is not given — it is earned through trust and time.</div>
               : character.spells.map((sp,i)=>(
                 <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
                   <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost} MP)</span></div>
@@ -508,25 +794,66 @@ export default function Game({ user, onLogout, onAdmin }) {
                 </div>
               ))
             }
+            {/* In-progress spell learning */}
+            {(character.spellLearning?.length > 0) && (
+              <>
+                <div style={{color:'#5a4a6a',fontSize:'0.65rem',letterSpacing:'0.1em',margin:'0.5rem 0 0.4rem',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.5rem'}}>LEARNING</div>
+                {character.spellLearning.map((sl,i) => (
+                  <div key={i} style={{marginBottom:'0.5rem',paddingBottom:'0.4rem',borderBottom:'1px solid rgba(100,80,120,0.15)'}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                      <span style={{color:'#8060a8',fontSize:'0.82rem'}}>◌ {sl.spellName}</span>
+                      <span style={{color:'#4a3a5a',fontSize:'0.65rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+                    </div>
+                    <div style={{height:'3px',background:'rgba(255,255,255,0.05)',borderRadius:'2px',margin:'0.25rem 0',overflow:'hidden'}}>
+                      <div style={{width:`${(sl.stage/sl.totalStages)*100}%`,height:'100%',background:'#6a4a8a',borderRadius:'2px'}}/>
+                    </div>
+                    {sl.partialNote && <div style={{color:'#5a4a6a',fontSize:'0.68rem',fontStyle:'italic'}}>{sl.partialNote}</div>}
+                    {sl.teacherNpcId && <div style={{color:'#3a2a4a',fontSize:'0.62rem',fontStyle:'italic'}}>Learning from: {sl.teacherNpcId.replace(/_/g,' ')}</div>}
+                  </div>
+                ))}
+              </>
+            )}
           </div>
         )}
 
+        {/* LORE PANEL */}
         {panel==='Lore'&&(
           <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
             <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
             {Object.keys(character.flags).length===0
-              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet.</div>
+              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet. Investigate the world.</div>
               : Object.entries(character.flags).filter(([k])=>!k.startsWith('notable_')).map(([k,v])=>(
                   <div key={k} style={{color:'#c9a96e',fontSize:'0.78rem',padding:'0.15rem 0'}}>· {k.replace(/_/g,' ')}: <span style={{color:'#6a5a4a'}}>{String(v)}</span></div>
                 ))
             }
             <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>KNOWN LOCATIONS</div>
             {character.knownLocations.map(loc=>(
-              <div key={loc} style={{color:'#5a7a5a',fontSize:'0.78rem'}}>
+              <div key={loc} style={{color:'#5a7a5a',fontSize:'0.78rem',display:'flex',alignItems:'center',gap:'0.4rem'}}>
                 · {loc.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
-                {loc===character.location&&<span style={{color:'#4a5a3a',fontSize:'0.65rem'}}> ← here</span>}
+                {loc===character.location&&<span style={{color:'#4a5a3a',fontSize:'0.65rem'}}>← here</span>}
+                {character.waypoints?.includes(loc)&&<span style={{color:'#c9a96e',fontSize:'0.6rem'}}>★</span>}
               </div>
             ))}
+            {/* Notable NPC relationships */}
+            {Object.keys(npcStates).length > 0 && (
+              <>
+                <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>NPC RELATIONSHIPS</div>
+                {Object.entries(npcStates)
+                  .filter(([,s]) => s.interactionCount > 0)
+                  .sort(([,a],[,b]) => (b.relationship||0) - (a.relationship||0))
+                  .map(([id, s]) => {
+                    const rel = s.relationship || 0;
+                    const relLabel = rel >= 80 ? 'Loyal' : rel >= 60 ? 'Trusted' : rel >= 30 ? 'Warm' : rel >= 0 ? 'Neutral' : rel >= -40 ? 'Cool' : rel >= -60 ? 'Hostile' : 'Refused';
+                    const relColor = rel >= 60 ? '#8fc47a' : rel >= 0 ? '#c9a96e' : '#c94a4a';
+                    return (
+                      <div key={id} style={{color:'#8a7a6a',fontSize:'0.72rem',padding:'0.1rem 0',display:'flex',justifyContent:'space-between'}}>
+                        <span>· {id.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</span>
+                        <span style={{color:relColor,fontSize:'0.65rem'}}>{relLabel} ({rel > 0 ? '+' : ''}{rel})</span>
+                      </div>
+                    );
+                  })}
+              </>
+            )}
           </div>
         )}
 
@@ -564,7 +891,8 @@ export default function Game({ user, onLogout, onAdmin }) {
             </div>
             <div style={{display:'grid',gridTemplateColumns:options.length>2?'1fr 1fr':'1fr',gap:'0.35rem'}}>
               {options.map((opt,i)=>(
-                <button key={i} onClick={()=>handleSend(opt)} style={{background:'rgba(201,169,110,0.05)',border:'1px solid rgba(201,169,110,0.22)',color:'#b09a70',padding:'0.5rem 0.65rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.8rem',textAlign:'left',lineHeight:'1.5',transition:'all 0.15s'}}
+                <button key={i} onClick={()=>handleSend(opt)}
+                  style={{background:'rgba(201,169,110,0.05)',border:'1px solid rgba(201,169,110,0.22)',color:'#b09a70',padding:'0.5rem 0.65rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.8rem',textAlign:'left',lineHeight:'1.5',transition:'all 0.15s'}}
                   onMouseOver={e=>{e.currentTarget.style.background='rgba(201,169,110,0.15)';e.currentTarget.style.color='#e8c87a'}}
                   onMouseOut={e=>{e.currentTarget.style.background='rgba(201,169,110,0.05)';e.currentTarget.style.color='#b09a70'}}>
                   <span style={{color:'#4a3a2a',marginRight:'0.4rem',fontSize:'0.65rem'}}>{['I','II','III','IV'][i]}.</span>
@@ -582,7 +910,8 @@ export default function Game({ user, onLogout, onAdmin }) {
               placeholder="What do you do?"
               disabled={loading}
               style={{flex:1,background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.3)',color:'#d4c4a0',fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
-            <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()} style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.2)'}`,color:input.trim()?'#c9a96e':'#4a3a2a',padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+            <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()}
+              style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.2)'}`,color:input.trim()?'#c9a96e':'#4a3a2a',padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
           </div>
         </div>
 

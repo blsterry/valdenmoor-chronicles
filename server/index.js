@@ -7,6 +7,7 @@ import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from './db.js';
+import { MAP_DATA, NPC_CATALOG, SKILL_CATALOG, EXPANDED_LORE, mapDistance } from './lore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -14,9 +15,10 @@ const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'changeme-use-env-var';
 
 app.use(cors());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '4mb' }));
 
-// ─── Auth middleware ────────────────────────────────────────
+// ─── Auth middleware ────────────────────────────────────────────────────────
+
 function auth(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
@@ -35,14 +37,12 @@ function adminAuth(req, res, next) {
   });
 }
 
-// ─── Auth routes ────────────────────────────────────────────
+// ─── Auth routes ────────────────────────────────────────────────────────────
 
-// Login
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password required' });
-
   try {
     const { rows } = await pool.query(
       'SELECT * FROM users WHERE username = $1', [username.toLowerCase()]
@@ -50,7 +50,6 @@ app.post('/api/login', async (req, res) => {
     const user = rows[0];
     if (!user || !await bcrypt.compare(password, user.password))
       return res.status(401).json({ error: 'Invalid credentials' });
-
     const token = jwt.sign(
       { id: user.id, username: user.username, is_admin: user.is_admin },
       JWT_SECRET, { expiresIn: '30d' }
@@ -62,9 +61,8 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// ─── Admin routes ───────────────────────────────────────────
+// ─── Admin routes ────────────────────────────────────────────────────────────
 
-// List all users
 app.get('/api/admin/users', adminAuth, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT id, username, is_admin, created_at FROM users ORDER BY created_at'
@@ -72,14 +70,12 @@ app.get('/api/admin/users', adminAuth, async (req, res) => {
   res.json(rows);
 });
 
-// Create a user (admin only — this is how friends get access)
 app.post('/api/admin/users', adminAuth, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password)
     return res.status(400).json({ error: 'Username and password required' });
   if (password.length < 6)
     return res.status(400).json({ error: 'Password must be at least 6 characters' });
-
   try {
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
@@ -94,7 +90,6 @@ app.post('/api/admin/users', adminAuth, async (req, res) => {
   }
 });
 
-// Delete a user
 app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
   const { id } = req.params;
   if (parseInt(id) === req.user.id)
@@ -103,7 +98,6 @@ app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Reset a user's password
 app.patch('/api/admin/users/:id/password', adminAuth, async (req, res) => {
   const { password } = req.body;
   if (!password || password.length < 6)
@@ -113,15 +107,15 @@ app.patch('/api/admin/users/:id/password', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Reset a user's game save
 app.delete('/api/admin/users/:id/save', adminAuth, async (req, res) => {
-  await pool.query('DELETE FROM saves WHERE user_id = $1', [req.params.id]);
+  const { id } = req.params;
+  await pool.query('DELETE FROM saves WHERE user_id = $1', [id]);
+  await pool.query('DELETE FROM npc_states WHERE user_id = $1', [id]);
   res.json({ ok: true });
 });
 
-// ─── Save routes ────────────────────────────────────────────
+// ─── Save routes ─────────────────────────────────────────────────────────────
 
-// Load save
 app.get('/api/save', auth, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT * FROM saves WHERE user_id = $1', [req.user.id]
@@ -129,7 +123,6 @@ app.get('/api/save', auth, async (req, res) => {
   res.json(rows[0] || null);
 });
 
-// Write save
 app.post('/api/save', auth, async (req, res) => {
   const { character, messages, display_log, mood, options, scene } = req.body;
   await pool.query(`
@@ -147,21 +140,180 @@ app.post('/api/save', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// Delete save (new game)
 app.delete('/api/save', auth, async (req, res) => {
   await pool.query('DELETE FROM saves WHERE user_id = $1', [req.user.id]);
+  await pool.query('DELETE FROM npc_states WHERE user_id = $1', [req.user.id]);
   res.json({ ok: true });
 });
 
-// ─── GM proxy ───────────────────────────────────────────────
-// Keeps the Anthropic API key on the server, never in the browser
+// ─── NPC State routes ─────────────────────────────────────────────────────────
+// Persistent NPC memory and relationship tracking per player.
+
+// Load all NPC states for current player
+app.get('/api/npc-states', auth, async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT npc_id, relationship, interaction_count, memory, teaching_progress, flags FROM npc_states WHERE user_id = $1',
+    [req.user.id]
+  );
+  // Return as object keyed by npc_id
+  const result = {};
+  for (const row of rows) {
+    result[row.npc_id] = {
+      relationship: row.relationship,
+      interactionCount: row.interaction_count,
+      memory: row.memory,
+      teachingProgress: row.teaching_progress,
+      flags: row.flags,
+    };
+  }
+  res.json(result);
+});
+
+// Bulk upsert NPC states after a GM response
+app.post('/api/npc-states', auth, async (req, res) => {
+  const { changes } = req.body; // [{ npcId, relationshipDelta, memorySummary, teachingProgress, flags, day }]
+  if (!changes || !Array.isArray(changes)) return res.status(400).json({ error: 'changes array required' });
+
+  for (const change of changes) {
+    const { npcId, relationshipDelta = 0, memorySummary, teachingProgress, flags, day } = change;
+    if (!npcId) continue;
+
+    // Fetch current state
+    const { rows } = await pool.query(
+      'SELECT * FROM npc_states WHERE user_id = $1 AND npc_id = $2',
+      [req.user.id, npcId]
+    );
+
+    if (rows.length === 0) {
+      // Create new entry
+      const newMemory = memorySummary ? [{ day: day || 1, summary: memorySummary }] : [];
+      await pool.query(`
+        INSERT INTO npc_states (user_id, npc_id, relationship, interaction_count, memory, teaching_progress, flags, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `, [req.user.id, npcId, Math.max(-100, Math.min(100, relationshipDelta)), memorySummary ? 1 : 0,
+          JSON.stringify(newMemory),
+          JSON.stringify(teachingProgress || {}),
+          JSON.stringify(flags || {})]);
+    } else {
+      const current = rows[0];
+      const newRel = Math.max(-100, Math.min(100, current.relationship + relationshipDelta));
+      const newCount = current.interaction_count + (memorySummary ? 1 : 0);
+
+      // Keep last 8 memory entries
+      let mem = current.memory || [];
+      if (memorySummary) {
+        mem = [...mem, { day: day || 1, summary: memorySummary }];
+        if (mem.length > 8) mem = mem.slice(-8);
+      }
+
+      // Merge teaching progress
+      const tp = { ...(current.teaching_progress || {}), ...(teachingProgress || {}) };
+      const fl = { ...(current.flags || {}), ...(flags || {}) };
+
+      await pool.query(`
+        UPDATE npc_states SET
+          relationship = $3, interaction_count = $4, memory = $5,
+          teaching_progress = $6, flags = $7, updated_at = NOW()
+        WHERE user_id = $1 AND npc_id = $2
+      `, [req.user.id, npcId, newRel, newCount, JSON.stringify(mem), JSON.stringify(tp), JSON.stringify(fl)]);
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+// ─── Fast Travel route ────────────────────────────────────────────────────────
+// Handles fast travel with random encounter check.
+
+app.post('/api/fast-travel', auth, async (req, res) => {
+  const { fromLocation, toLocation, character, messages } = req.body;
+  if (!fromLocation || !toLocation || !character)
+    return res.status(400).json({ error: 'fromLocation, toLocation, and character required' });
+
+  // Verify destination has a waypoint
+  if (!character.waypoints?.includes(toLocation)) {
+    return res.status(400).json({ error: 'No waypoint at destination' });
+  }
+
+  const dist = mapDistance(fromLocation, toLocation);
+  const encounterChance = Math.min(0.6, 0.15 + dist * 0.002);
+  const roll = Math.random();
+
+  if (roll < encounterChance) {
+    // Random encounter during travel
+    const fromLoc = MAP_DATA.locations.find(l => l.id === fromLocation);
+    const toLoc   = MAP_DATA.locations.find(l => l.id === toLocation);
+    const travelPrompt = `[FAST TRAVEL ENCOUNTER] ${character.name} is traveling from ${fromLoc?.name || fromLocation} to ${toLoc?.name || toLocation} along the road. They are partway through the journey when something interrupts their travel. Generate a meaningful random encounter appropriate to the terrain and character level ${character.level}. This could be: bandits, a traveler in need, a strange phenomenon, an unusual creature, an abandoned scene with clues. The encounter should fit the world's tone. End the scene with the character near ${toLoc?.name || toLocation} — they will arrive but must deal with this first. Include stateChanges as appropriate. Give 4 options for how to handle it.`;
+
+    try {
+      const systemPrompt = buildSystemPrompt(character, {});
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': process.env.ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [
+            ...(messages || []),
+            { role: 'user', content: travelPrompt },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        console.error('Anthropic error:', err);
+        // Fall back to no-encounter if API fails
+        return res.json({ encounter: false, stateChanges: { location: toLocation } });
+      }
+
+      const data = await response.json();
+      const raw = data.content?.map(b => b.text || '').join('') || '';
+      let parsed;
+      try {
+        const clean = raw.replace(/```json|```/g, '').trim();
+        const start = clean.indexOf('{');
+        const end   = clean.lastIndexOf('}');
+        parsed = JSON.parse(clean.slice(start, end + 1));
+      } catch {
+        return res.json({ encounter: false, stateChanges: { location: toLocation } });
+      }
+
+      // Ensure location is set to destination in stateChanges
+      parsed.stateChanges = { ...(parsed.stateChanges || {}), location: toLocation };
+      return res.json({ encounter: true, parsed });
+
+    } catch (err) {
+      console.error('Fast travel encounter error:', err);
+      return res.json({ encounter: false, stateChanges: { location: toLocation } });
+    }
+
+  } else {
+    // Clean travel — no encounter
+    const toLoc = MAP_DATA.locations.find(l => l.id === toLocation);
+    const fromLoc = MAP_DATA.locations.find(l => l.id === fromLocation);
+    return res.json({
+      encounter: false,
+      stateChanges: { location: toLocation },
+      travelDescription: `You make the journey from ${fromLoc?.name || fromLocation} to ${toLoc?.name || toLocation} without incident. The road is long but uneventful.`,
+    });
+  }
+});
+
+// ─── GM proxy ─────────────────────────────────────────────────────────────────
+// Keeps the Anthropic API key on the server, never in the browser.
 
 app.post('/api/gm', auth, async (req, res) => {
-  const { character, messages } = req.body;
+  const { character, messages, npcContext } = req.body;
   if (!character || !messages)
     return res.status(400).json({ error: 'Missing character or messages' });
 
-  const systemPrompt = buildSystemPrompt(character);
+  const systemPrompt = buildSystemPrompt(character, npcContext || {});
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -173,7 +325,7 @@ app.post('/api/gm', auth, async (req, res) => {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
+        max_tokens: 1200,
         system: systemPrompt,
         messages,
       }),
@@ -188,7 +340,6 @@ app.post('/api/gm', auth, async (req, res) => {
     const data = await response.json();
     const raw = data.content?.map(b => b.text || '').join('') || '';
 
-    // Robust JSON extraction
     let parsed;
     try {
       const clean = raw.replace(/```json|```/g, '').trim();
@@ -200,6 +351,7 @@ app.post('/api/gm', auth, async (req, res) => {
         narrative: raw || 'A strange silence falls upon the world...',
         scenePrompt: 'misty landscape dark moody atmospheric medieval',
         stateChanges: {},
+        npcStateChanges: [],
         options: ['Look around', 'Wait and listen', 'Press onward', 'Rest a moment'],
         mood: 'mysterious',
       };
@@ -212,69 +364,124 @@ app.post('/api/gm', auth, async (req, res) => {
   }
 });
 
-// ─── Serve React frontend in production ─────────────────────
+// ─── Serve React frontend in production ──────────────────────────────────────
+
 if (process.env.NODE_ENV === 'production') {
   const distPath = path.join(__dirname, '../client/dist');
   app.use(express.static(distPath));
   app.get('*', (_, res) => res.sendFile(path.join(distPath, 'index.html')));
 }
 
-app.listen(PORT, () => console.log(`Valdenmoor server running on port ${PORT}`));
+// ─── Database migrations ──────────────────────────────────────────────────────
+// Safe to run on every boot — all statements use IF NOT EXISTS / ON CONFLICT.
 
-// ─── World lore & system prompt ─────────────────────────────
-// Kept server-side so it's never sent to the browser in full
+async function runMigrations() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS npc_states (
+        id                 SERIAL PRIMARY KEY,
+        user_id            INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        npc_id             TEXT NOT NULL,
+        relationship       INTEGER DEFAULT 0,
+        interaction_count  INTEGER DEFAULT 0,
+        memory             JSONB NOT NULL DEFAULT '[]',
+        teaching_progress  JSONB NOT NULL DEFAULT '{}',
+        flags              JSONB NOT NULL DEFAULT '{}',
+        updated_at         TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(user_id, npc_id)
+      );
+    `);
+    console.log('Migrations OK');
+  } catch (err) {
+    console.error('Migration error:', err);
+  }
+}
 
-function buildSystemPrompt(character) {
+runMigrations().then(() => {
+  app.listen(PORT, () => console.log(`Valdenmoor server running on port ${PORT}`));
+});
+
+// ─── System Prompt Builder ────────────────────────────────────────────────────
+
+function buildSystemPrompt(character, npcContext) {
+  const npcSection  = buildNpcContextSection(character, npcContext);
+  const skillSection = buildSkillSection(character);
+  const mapSection   = buildMapSection(character);
+
   return `You are the Game Master for "Valdenmoor Chronicles," a medieval open-world RPG.
 
 ${WORLD_LORE}
 
+${EXPANDED_LORE}
+
 CURRENT CHARACTER:
 ${JSON.stringify(character, null, 2)}
 
-RULES:
+${npcSection}
+
+${skillSection}
+
+${mapSection}
+
+CORE RULES:
+
 1. STATS: STR=melee/intimidate, DEX=stealth/ranged, INT=magic/lore, WIS=perception/survival, CON=hp/endurance, CHA=persuasion/trade
-2. SPELLS: NO class restrictions. Learned ONLY from willing NPC teachers. Track who taught each spell.
-3. MYSTERY: Reward investigation. Information has cost. Not all is freely given.
-4. SCENE IMAGE: Each response must include a "scenePrompt" — 8-12 words describing the visual scene for an SVG illustration.
+2. MYSTERY: Reward investigation. Information has cost. Not all is freely given.
+3. SCENE IMAGE: Each response must include a "scenePrompt" — 8-12 words describing the visual scene.
 
 WRITING STYLE — CRITICAL:
-Write like Guy Gavriel Kay: grounded, specific, atmospheric without being overwrought. No purple prose. No florid metaphors stacked on each other. Sentences earn their length. Details are chosen, not accumulated.
+Write like Guy Gavriel Kay: grounded, specific, atmospheric without being overwrought. No purple prose. No florid metaphors. Sentences earn their length. Details are chosen, not accumulated.
 - Good: "The inn smells of tallow and wet wool. Three men at the bar go quiet when you enter."
-SENSORY REALISM: Respect physical distance. Standing outside a building, you hear muffled voices or laughter — not words. You smell a fire before you see it. You notice a figure in a window, not their expression. Do not give the player information their senses could not actually reach.
-- Bad: "The warm amber glow of the ancient tavern envelops you like a comforting embrace, its weathered timbers whispering tales of countless travelers."
+- Bad: "The warm amber glow of the ancient tavern envelops you like a comforting embrace."
+SENSORY REALISM: Respect physical distance. Standing outside a building, you hear muffled voices or laughter — not words. You smell a fire before you see it. You notice a figure in a window, not their expression. Do not give information their senses could not reach.
 Keep narrative to 2-3 SHORT paragraphs. Say the thing. Trust the world to do the rest.
 
 COMBAT & LEVELING:
-- Combat: ~40% chance of minor injury in a fair fight. Say what happened plainly.
-- XP for combat: base XP by enemy difficulty. DIMINISHING RETURNS: check character flags for "grind_[enemytype]". If present, award 50% XP for second fight of same type, 25% for third+. Set flag "grind_bandit", "grind_wolf" etc. when combat XP awarded. Reset these flags when a story beat, new location, or major quest step occurs.
-- XP for story/exploration/quests: always full value. This is the best path to power.
-- ENEMY SCALING in named locations (Valdenmoor, Thornhaven, Whisperwood, Aethra, Saltmere, Iron Gate, High Moors, Bren Monastery): enemies scale to character level. Open wilderness enemies do not scale.
+- Combat: ~40% chance of minor injury in a fair fight.
+- XP for combat: base by enemy difficulty. DIMINISHING RETURNS on same enemy type (50% second fight, 25% third+). Track via grind_[enemytype] flags.
+- XP for story/exploration/quests: always full value.
 - Award XP for: quests, meaningful exploration, clever problem solving, social achievements, first-time discoveries.
 
 FREE-FORM ACTIONS — CRITICAL:
-Players may type ANYTHING. This is a full open-world RPG. Honor all reasonable player actions:
-- Environmental interaction: "I search the room", "I climb the oak tree", "I wait until nightfall"
-- Item collection: "I gather five small smooth stones" → add five "Smooth River Stone" entries to addInventory
-- Creative item use: "I throw a stone to create a distraction" → remove one instance, narrate outcome, DEX check
-- Social actions: NPCs respond fully in character with their personalities, secrets, and agendas
-- Rest/time passage: "I sleep at the inn" → restore HP/MP appropriately
+Players may type ANYTHING. Honor all reasonable player actions:
+- Environmental interaction, item collection, creative item use, social actions, rest/time passage.
+- Sensory limitations apply — what they can see, hear, smell from where they stand.
 
 INVENTORY NAMING RULES:
-- Use EXACT, CONSISTENT item names. Once named, never change the name.
-- Be specific: "Smooth River Stone" not "stone". "Iron Belt Knife" not "knife".
-- Stackable items: same name for each instance. Five stones = five "Smooth River Stone" entries.
-- When removing, the string must EXACTLY match what is in the character's inventory list above.
-- Track partial consumable use: "2x Hardtack" after eating one of "3x Hardtack".
+- Exact, consistent item names. Specific: "Smooth River Stone" not "stone".
+- When removing, the string must exactly match the inventory entry.
 
-NOTABLE ITEM FLAGGING:
-When a player acquires an item with significant future utility, also add to addQuestFlag:
-{ "notable_smooth_stones": "5x Smooth River Stone — usable as projectiles or distractions" }
+NPC MEMORY & RELATIONSHIP RULES — CRITICAL:
+- Use the NPC CONTEXT section below to maintain FULL consistency with past interactions.
+- If an NPC's relationship is below their slamsShut threshold: they REFUSE all interaction. No exceptions.
+- If relationship is above gushes threshold: the NPC is genuinely warm, loyal, may share extra information.
+- Always include npcStateChanges for any NPC the player meaningfully interacts with.
+- NEVER grant spells or skill stages unless prerequisites in the NPC catalog are met.
+- Teaching is slow, conditional, and earned. Errand completion, relationship thresholds, and demonstrated worth all matter.
+- A single session does NOT complete multi-stage teaching. Stages require real time and real effort between them.
+
+SKILL SYSTEM RULES:
+- Award skillXP when player meaningfully uses a skill they possess. Minor use: 3-5 XP. Significant: 8-12 XP. Exceptional: 15-20 XP.
+- ONLY award skillXP for skills the player currently has.
+- Tier advancement requires BOTH the XP threshold AND the gate condition.
+- Use updateSkill when gate is met and XP threshold is crossed (include full updated skill object).
+- Use addSkill only for initial skill acquisition (Tier 1, first lesson from a teacher).
+
+WAYPOINT RULES:
+- Use addWaypoint when player explicitly establishes a camp, sets up a base, or declares intent to return.
+- Not every visit earns a waypoint — only deliberate establishment.
+
+SPELL LEARNING RULES:
+- Never grant a full spell in a single session unless it is explicitly a one-stage teaching.
+- Use addSpellStage for multi-stage spells: { spellId, spellName, stage, totalStages, teacherNpcId, partialNote }
+- Use addSpell only when ALL stages are complete.
+- partialNote should describe what the player can do with their partial knowledge (usually very limited).
 
 CRITICAL: Respond ONLY with valid JSON. No markdown. No prose outside JSON. No backticks.
+
 RESPONSE SCHEMA:
 {
-  "narrative": "2-3 short grounded paragraphs — specific, atmospheric, no purple prose",
+  "narrative": "2-3 short grounded paragraphs",
   "scenePrompt": "8-12 word visual scene description",
   "stateChanges": {
     "hp": null,
@@ -285,18 +492,146 @@ RESPONSE SCHEMA:
     "addInventory": [],
     "removeInventory": [],
     "addSpell": null,
+    "addSpellStage": null,
     "addSkill": null,
+    "updateSkill": null,
+    "skillXP": null,
     "addKnownLocation": null,
+    "addWaypoint": null,
     "npcRelationChange": null,
     "addQuestFlag": null,
     "levelUp": false
   },
+  "npcStateChanges": [
+    {
+      "npcId": "npc_id_string",
+      "relationshipDelta": 0,
+      "memorySummary": "1-2 sentence summary of what happened in this interaction",
+      "teachingProgress": null,
+      "flags": {}
+    }
+  ],
   "options": ["Option A","Option B","Option C","Option D"],
   "mood": "tense|calm|mysterious|combat|discovery|social"
 }`;
 }
 
-// ─── Full world lore (server-side only) ─────────────────────
+// Build the NPC context section for the system prompt
+function buildNpcContextSection(character, npcContext) {
+  if (!npcContext || Object.keys(npcContext).length === 0) {
+    return '── NPC CONTEXT: No prior NPC interactions recorded. ──';
+  }
+
+  const currentLoc = character.location;
+  const lines = ['── NPC CONTEXT (use to maintain consistency) ──'];
+
+  // Organize NPCs: location-relevant first, then others
+  const locationNpcs = NPC_CATALOG.filter(n => n.location === currentLoc);
+  const knownNpcIds  = Object.keys(npcContext);
+
+  const relevantNpcIds = new Set([
+    ...locationNpcs.map(n => n.id).filter(id => knownNpcIds.includes(id)),
+    ...knownNpcIds.sort((a, b) => (npcContext[b]?.interactionCount || 0) - (npcContext[a]?.interactionCount || 0)).slice(0, 12),
+  ]);
+
+  for (const npcId of relevantNpcIds) {
+    const npc    = NPC_CATALOG.find(n => n.id === npcId);
+    const state  = npcContext[npcId];
+    if (!npc || !state) continue;
+
+    const rel = state.relationship || 0;
+    const relLabel = rel >= 80 ? 'Loyal' : rel >= 60 ? 'Trusted' : rel >= 30 ? 'Warm' : rel >= 0 ? 'Neutral' : rel >= -40 ? 'Cool' : rel >= -60 ? 'Hostile' : 'Refused';
+    const atSlamsShut = rel < (npc.relationshipRules?.slamsShut || -60);
+    const atGushes    = rel >= (npc.relationshipRules?.gushes || 80);
+
+    lines.push(`\nNPC: ${npc.name} (${npc.role}, ${npc.location})`);
+    lines.push(`  Relationship: ${relLabel} (${rel > 0 ? '+' : ''}${rel}) — ${state.interactionCount || 0} interactions`);
+
+    if (atSlamsShut) lines.push(`  ⚠ REFUSED: This NPC will not interact with the player.`);
+    if (atGushes)    lines.push(`  ★ LOYAL: This NPC is genuinely warm, shares extra information, may take personal risks.`);
+
+    if (state.memory?.length) {
+      lines.push(`  History:`);
+      for (const m of state.memory.slice(-4)) {
+        lines.push(`    Day ${m.day}: ${m.summary}`);
+      }
+    }
+
+    if (state.teachingProgress && Object.keys(state.teachingProgress).length > 0) {
+      lines.push(`  Teaching progress: ${JSON.stringify(state.teachingProgress)}`);
+    }
+  }
+
+  // Also list NPCs at current location who have NOT been met
+  const unmetAtLocation = locationNpcs.filter(n => !knownNpcIds.includes(n.id));
+  if (unmetAtLocation.length > 0) {
+    lines.push(`\nNPCs AT CURRENT LOCATION (${currentLoc}) — not yet interacted with:`);
+    for (const npc of unmetAtLocation) {
+      lines.push(`  - ${npc.name}, ${npc.role}: ${npc.personality.slice(0, 80)}...`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// Build skill catalog context for the system prompt
+function buildSkillSection(character) {
+  const playerSkillIds = (character.skills || []).map(s => s.id);
+  const lines = ['── SKILL CONTEXT ──'];
+
+  if (playerSkillIds.length === 0) {
+    lines.push('Player has no skills yet. Skills are gained through NPC teaching only. Never grant skill XP for skills the player does not have.');
+  } else {
+    lines.push('Player skills (award skillXP for these when meaningfully used):');
+    for (const skill of character.skills) {
+      const catalog = SKILL_CATALOG.find(s => s.id === skill.id);
+      const nextTier = catalog?.tiers.find(t => t.tier === (skill.tier || 1) + 1);
+      lines.push(`  - ${skill.name} [Tier ${skill.tier || 1}: ${skill.tierName || '?'}] XP: ${skill.xp || 0}/${skill.xpToNext || 50}. Next gate: ${nextTier?.gate || 'mastered'}`);
+    }
+  }
+
+  lines.push('\nAvailable skills (for when NPCs teach):');
+  for (const s of SKILL_CATALOG) {
+    if (!playerSkillIds.includes(s.id)) {
+      lines.push(`  - ${s.name} (${s.stat}): ${s.description}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+// Build map/location context
+function buildMapSection(character) {
+  const known = new Set(character.knownLocations || []);
+  const waypoints = new Set(character.waypoints || []);
+  const lines = ['── MAP CONTEXT ──'];
+
+  lines.push(`Current location: ${character.location}`);
+  lines.push(`Known locations: ${[...known].join(', ')}`);
+  if (waypoints.size > 0) lines.push(`Waypoints set: ${[...waypoints].join(', ')}`);
+
+  // Roads from current location to unknown locations (hint-worthy)
+  const currentRoads = MAP_DATA.roads.filter(r => r[0] === character.location || r[1] === character.location);
+  const unknownNeighbors = currentRoads
+    .map(r => r[0] === character.location ? r[1] : r[0])
+    .filter(id => !known.has(id));
+  if (unknownNeighbors.length > 0) {
+    const names = unknownNeighbors.map(id => {
+      const loc = MAP_DATA.locations.find(l => l.id === id);
+      return loc?.name || id;
+    });
+    lines.push(`Roads lead toward: ${names.join(', ')} (undiscovered — player can learn these exist by asking about roads or exploring)`);
+  }
+
+  lines.push('\nTo add a known location: use addKnownLocation in stateChanges (location_id string).');
+  lines.push('To set a waypoint: use addWaypoint in stateChanges (location_id string). Only when player deliberately establishes a base/camp.');
+
+  return lines.join('\n');
+}
+
+// ─── World lore & system prompt data ─────────────────────────────────────────
+// Core world lore kept server-side
+
 const WORLD_LORE = `
 ════════════════════════════════════════
 VALDENMOOR CHRONICLES — GM WORLD BIBLE
@@ -333,35 +668,13 @@ IRON COVENANT: The Pale Lord = Ser Haddon Graves, 67. Former chief engineer of t
 
 COLLEGIUM: Magister Voss. Brilliant and terrified. Has 3 unidentified Resonance Shards in his vault. Accidentally touched one 20 years ago and has been suppressing the memory ever since.
 
-━━━ KEY NPCs ━━━
-
-MIRA (innkeeper, crossroads, 52): Warm, observant, runs the inn as neutral ground. Her mother has severe Forgetting. Reports travelers to Lady Cassel — feeling guilty. Sealed cellar room: 6 exceptional Resonance Shards she's never opened. Teaches: Calm Emotions (only to deeply trusted players).
-
-ALDRIC (village elder, Thornhaven, 67): Has been mining Mnemorite shards from the mill for 15 years, selling as gemstones. His own Forgetting has progressed 2 years — he doesn't realize it. Wants to protect granddaughter Lena.
-
-LENA (14, Thornhaven): Has Aethran genetics — hears Mnemorite resonance as music, genuinely beautiful to her. The Pale Lord's scouts are looking for her. Smarter than she appears; will call out condescension directly.
-
-MAGISTER VOSS (Collegium, 58): Can teach: Arcane Lock, Force Bolt, Dispel Illusion, Mnemorite Sensitivity (calls it "arcane attunement"), Counterspell, Wall of Force. Requires intellectual proof of worth.
-
-LADY CASSEL (spymaster, 45): Deliberately forgettable appearance. Can teach: Disguise Self, Whisper Network, Shadow Step — after completing at least one contract.
-
-SERA (druid, Whisperwood, appears 35, actually 140): Aethran ancestry. Has been watching Mnemorite flows increase for 40 years. Can teach: Nature's Voice, Rootwalk, Mnemorite Ward, Healing Trance, Thornwall. Requires forest respect + one quest.
-
-THE PALE LORD / SER HADDON GRAVES (67, appears 50): Has most accurate vein maps in existence. Calculated overload: ~3 years 4 months from campaign start. Has 2 Stillpoint Rods; third is in Aethra Level 2. Late-game trust: teaches Mnemorite Seal, Engine Reading, reveals third Rod's location.
-
-BROTHER TOMLIN (ruins scholar, 44): Wants to ACTIVATE the Engine — believes it's a power source. Has the research right, the conclusion wrong. Teaches: Aethran Glyph Reading (foundational, given early), Light of Memory, Archive Mind.
-
-HIGH KEEPER ALDARA (74): Her faith's founding texts are adapted Aethran technical documents. In spiritual crisis. Teaches: Memory Rite, Soul Ward, Ancestor's Voice — pilgrimage quest required.
-
-CAPTAIN VANE (Saltmere): Smuggler. The lighthouse keeper has been maintaining it on pure muscle memory for 6 weeks since the Forgetting took his mind. He repeats "Keeps the ships home." Teaches: Sea Legs, Signal Fire (free), Saltwater Ward.
-
-━━━ LOCATIONS ━━━
+━━━ KEY LOCATIONS ━━━
 
 CROSSROADS & RUSTED COMPASS: Fog, Aethran shrine repurposed for local saints. Inn: sealed cellar with 6 exceptional Resonance Shards (Mira's never opened it). Noticeboard: Whisperwood bounty (secretly Sera's), missing person (Aldric's nephew), Maren mineral posting.
 
 THORNHAVEN (~200): Six fresh graves (Forgetting complications). Mill: Mnemorite vein visible as blue-white lines in stone when lights out. Aldric's locked attic: extraction equipment, 11 raw shards, journals. Spending a night at the mill: vivid leaked memories from Aldric. Lena can lead players to 3 resonance hotspots.
 
-VALDENMOOR (~18,000): Palace District (Archive has sealed excavation records subbasement), Collegium Quarter (largest Aethran tablet collection, Voss's 3 Shards in vault), Market Ward ("Forgetting Row"), Under-Streets (Aethran corridors below sewers, Engine 3 levels down, Iron Covenant access point known only to Pale Lord and Lady Cassel).
+VALDENMOOR (~18,000): Palace District (Archive has sealed excavation records subbasement), Collegium Quarter (largest Aethran tablet collection, Voss's 3 Shards in vault), Market Ward ("Forgetting Row"), Under-Streets (Aethran corridors below sewers, Engine 3 levels down, Iron Covenant access point).
 
 ENGINE CHAMBER: 30 meters across. Crystal columns around central mechanism the size of a house. 7-second pulse. Air makes memories vivid and overwhelming. One cracked containment seal. Pale Lord's workbenches, 2 Stillpoint Rods on wall.
 
@@ -369,26 +682,26 @@ WHISPERWOOD: Ancient forest, creates its own weather. Sera's home: half-built, h
 
 AETHRA RUINS: Surface: towers with glyphs (Tomlin has 60% translated), amphitheater (Engine resonance audible during pulses), sealed vault (Memory Anchor original, Echo Lens, complete Aethran ethical codes — key assembled from 3 tablets). Underground 1: archive, damaged Constructs. Underground 2: Mnemorite refinery, 3 exceptional Resonance Shards, THE THIRD STILLPOINT ROD.
 
-IRON GATE: Former mine. Pale Lord's research room: most accurate vein maps, overload timeline, original excavation notes — the most complete document of the Forgetting's cause in existence.
+IRON GATE: Former mine. Pale Lord's research room: most accurate vein maps, overload timeline, original excavation notes.
 
-PORT SALTMERE: Lighthouse (elderly man maintaining on muscle memory alone, repeats "Keeps the ships home"). Maren warehouse: 47 crates of mislabeled Mnemorite shards. Tidal Caves: Aethran processing equipment, House Valdris documents hidden 35 years ago (major political lever).
+PORT SALTMERE: Lighthouse (Eron maintaining on muscle memory alone). Maren warehouse: 47 crates mislabeled Mnemorite shards. Tidal Caves: Aethran processing equipment, House Valdris documents hidden 35 years ago.
 
 HIGH MOORS: Standing Men (Aethran beacons, partially active). Moor Graves (mass Civil War grave, involuntary memory experiences overnight, recurring consciousness of Vey — Aethran girl, 19, killed in involuntary harvest).
 
-RESONANCE NEXUS: Center of triangle formed by Valdenmoor, Aethra, High Moors. Flat stone platform, no structures. Intense Mnemorite field. INT 14+ or Mnemorite Sensitivity spell: can perceive Engine's state, send simple commands, locate third Rod. Extended stays cause memory bleeding.
+RESONANCE NEXUS: Center of triangle formed by Valdenmoor, Aethra, High Moors. Flat stone platform. Intense Mnemorite field. INT 14+ or Mnemorite Sensitivity spell: can perceive Engine's state, send simple commands, locate third Rod.
 
-BREN MONASTERY: Infirmary, scriptorium. Reliquary: "Saint Edra's Tear" is a Resonance Shard containing memory of Edra — Aethran memory-ethics architect, thoughtful and heartbroken. Most humanizing Aethran contact available.
+BREN MONASTERY: Infirmary, scriptorium. Reliquary: "Saint Edra's Tear" is a Resonance Shard containing memory of Edra — Aethran memory-ethics architect.
 
 HERMIT'S TOWER (Whisperwood south): Drest's notes propose a FATAL solution — using a living Aethran-sensitive person as a "living outlet" for Engine discharge. This WOULD KILL THEM. It is wrong. Present only as a red herring discovered by desperate NPCs.
 
-━━━ SPELL CATALOG (summarized) ━━━
+━━━ SPELL CATALOG ━━━
 COMBAT: Force Bolt (Voss, 2MP), Concussive Wave (Tam, 3MP), Flame Tongue (Orsin at Saltmere, 2MP), Thornwall (Sera, 3MP), Shadow Step (Cassel, 2MP), Counterspell (Voss advanced, 4MP), Wall of Force (Voss advanced, 5MP)
 UTILITY: Arcane Lock (Voss, 1MP), Dispel Illusion (Voss, 2MP), Nature's Voice (Sera, 2MP), Rootwalk (Sera, 3MP), Disguise Self (Cassel, 2MP), Whisper Network (Cassel, 2MP), Signal Fire (Vane free, 1MP), Waterbreath (Pell at Saltmere, 2MP), Archive Mind (Tomlin, 3MP), Light of Memory (Tomlin, 2MP)
-AETHRAN/RARE: Mnemorite Sensitivity (Voss, 3MP — reveals Engine pulse from Valdenmoor), Mnemorite Ward (Sera late, 4MP), Mnemorite Seal (Pale Lord with trust, 4MP), Memory Rite (Aldara, 3MP), Soul Ward (Aldara, 2MP), Resonance Read (Pale Lord late, 4MP), Engine Reading (Pale Lord only, 5MP — required for repair), Ancestor's Voice (Aldara late, 4MP), Aethran Glyph Reading (Tomlin, 2MP)
+AETHRAN/RARE: Mnemorite Sensitivity (Voss, 3MP), Mnemorite Ward (Sera late, 4MP), Mnemorite Seal (Pale Lord with trust, 4MP), Memory Rite (Aldara, 3MP), Soul Ward (Aldara, 2MP), Resonance Read (Pale Lord late, 4MP), Engine Reading (Pale Lord only, 5MP), Ancestor's Voice (Aldara late, 4MP), Aethran Glyph Reading (Tomlin, 2MP)
 HEALING: Healing Trance (Sera, 3MP), Triage Touch (Brother Cael at monastery, 2MP), Fortify (Gavrik at Saltmere, free), Calm Emotions (Mira, 2MP — deeply trusted only)
 
 ━━━ MAIN QUEST ARC ━━━
-Act I clues: mill haunting, Aldric's behavior, Mira's mother, missing nephew noticeboard, Voss's paranoia.
+Act I clues: mill haunting, Aldric's behavior, Mira's mother, missing nephew noticeboard, Voss's paranoia, Elder Bec's records.
 Act II: Engine's existence, Pale Lord's true goal, the Nexus, Maren warehouse discovery.
 Act III — THREE SOLUTIONS (no clean answer):
   1. Repair the seal — needs Pale Lord's cooperation + all 3 Stillpoint Rods
