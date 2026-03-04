@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sendToGM, loadSave, writeSave, deleteSave, logout,
-         loadNpcStates, updateNpcStates, fastTravel } from './api.js';
+         loadNpcStates, updateNpcStates, fastTravel, logEvents } from './api.js';
 import WorldMap from './WorldMap.jsx';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -11,6 +11,42 @@ const BACKSTORY_OPTIONS = [
   "A traveling trader. That's what you tell people, at least.",
   "The road looked better than whatever you were leaving behind.",
 ];
+
+// Game starts at 18:00 (dusk) on Day 1. Offset = 1080 min from midnight.
+const GAME_START_OFFSET = 1080;
+
+function formatGameTime(gameMinutes) {
+  const abs = (gameMinutes || 0) + GAME_START_OFFSET;
+  const dayNum = Math.floor(abs / 1440) + 1;
+  const todMin = abs % 1440;
+  const hr = Math.floor(todMin / 60);
+  const mn = todMin % 60;
+  const hr12 = ((hr % 12) || 12);
+  const ampm = hr >= 12 ? 'pm' : 'am';
+  const label = todMin < 300  ? 'dead of night'
+    : todMin < 360  ? 'pre-dawn'
+    : todMin < 480  ? 'dawn'
+    : todMin < 660  ? 'morning'
+    : todMin < 720  ? 'late morning'
+    : todMin < 840  ? 'early afternoon'
+    : todMin < 1020 ? 'afternoon'
+    : todMin < 1080 ? 'late afternoon'
+    : todMin < 1200 ? 'dusk'
+    : todMin < 1320 ? 'evening'
+    : 'night';
+  return { dayNum, hr12, mn: String(mn).padStart(2, '0'), ampm, label };
+}
+
+function needsLabel(hunger, thirst, fatigue) {
+  const h = hunger  || 0;
+  const t = thirst  || 0;
+  const f = fatigue || 0;
+  const parts = [];
+  if (h >= 25) parts.push(h < 50 ? 'hungry' : h < 75 ? 'famished' : '⚠ starving');
+  if (t >= 25) parts.push(t < 50 ? 'thirsty' : t < 75 ? 'parched'  : '⚠ desperate for water');
+  if (f >= 25) parts.push(f < 50 ? 'tired'   : f < 75 ? 'exhausted': '⚠ near collapse');
+  return parts.join(' · ') || null;
+}
 
 const INITIAL_CHARACTER = {
   name: '', gender: 'they', backstory: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
@@ -27,6 +63,10 @@ const INITIAL_CHARACTER = {
   npcRelations: {},
   flags: {},
   dayCount: 1,
+  gameMinutes: 0,   // total elapsed game minutes (0 = Day 1, 18:00)
+  hunger: 0,        // 0-100; natural rate +2/hr
+  thirst: 0,        // 0-100; natural rate +4/hr
+  fatigue: 0,       // 0-100; natural rate +2.5/hr; sleep resets
 };
 
 const STAT_LABELS = {
@@ -63,6 +103,22 @@ const GameEngine = {
     if (!sc) return { character, leveledUp: false, skillNotices: [] };
     let c = { ...character };
     const skillNotices = [];
+
+    // ── Time & physical needs ──────────────────────────────────────────────
+    if (sc.minutesElapsed && sc.minutesElapsed > 0) {
+      const mins = sc.minutesElapsed;
+      c.gameMinutes = (c.gameMinutes || 0) + mins;
+      // Natural accumulation per hour
+      c.hunger  = Math.min(100, (c.hunger  || 0) + (mins / 60) * 2);
+      c.thirst  = Math.min(100, (c.thirst  || 0) + (mins / 60) * 4);
+      c.fatigue = Math.min(100, (c.fatigue || 0) + (mins / 60) * 2.5);
+      // Sync dayCount from gameMinutes
+      c.dayCount = Math.floor((c.gameMinutes + GAME_START_OFFSET) / 1440) + 1;
+    }
+    // GM-driven adjustments (eating, drinking, resting)
+    if (sc.hungerDelta  != null) c.hunger  = Math.max(0, Math.min(100, (c.hunger  || 0) + sc.hungerDelta));
+    if (sc.thirstDelta  != null) c.thirst  = Math.max(0, Math.min(100, (c.thirst  || 0) + sc.thirstDelta));
+    if (sc.fatigueDelta != null) c.fatigue = Math.max(0, Math.min(100, (c.fatigue || 0) + sc.fatigueDelta));
 
     if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
     if (sc.mp != null)   c.mp   = Math.max(0, Math.min(sc.mp, c.maxMp));
@@ -409,6 +465,11 @@ export default function Game({ user, onLogout, onAdmin }) {
       ];
 
       const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(char, parsed.stateChanges);
+
+      // Persist game events (fire-and-forget)
+      if (parsed.logEvents?.length > 0) {
+        logEvents(parsed.logEvents, newChar.gameMinutes, newChar.location).catch(() => {});
+      }
 
       // Handle NPC state changes
       if (parsed.npcStateChanges?.length > 0) {
@@ -881,8 +942,18 @@ export default function Game({ user, onLogout, onAdmin }) {
               })}
             </div>
             {character.statPoints>0&&<div style={{color:pal.textAccent,fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
-            <div style={{marginTop:'0.5rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-              {(()=>{const p=character.gender==='he'?'he/him':character.gender==='she'?'she/her':'they/them';return `Day ${character.dayCount} · ${character.race} · ${p}`;})()}
+            <div style={{marginTop:'0.5rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+              {(()=>{
+                const p = character.gender==='he'?'he/him':character.gender==='she'?'she/her':'they/them';
+                const gt = formatGameTime(character.gameMinutes || 0);
+                const needs = needsLabel(character.hunger, character.thirst, character.fatigue);
+                return <>
+                  <div style={{color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic'}}>
+                    {`Day ${gt.dayNum} · ${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm} · ${character.race} · ${p}`}
+                  </div>
+                  {needs && <div style={{color:needs.includes('⚠')?'#c94a4a':pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',marginTop:'0.15rem'}}>{needs}</div>}
+                </>;
+              })()}
             </div>
           </div>
         )}

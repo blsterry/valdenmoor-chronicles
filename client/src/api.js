@@ -82,6 +82,41 @@ export async function updateNpcStates(changes, day = 1) {
   });
 }
 
+// ─── Game Events ─────────────────────────────────────────────────────────────
+
+// Load recent events; params: { limit, npcId, types }
+export async function loadEvents(params = {}) {
+  const query = new URLSearchParams();
+  if (params.limit) query.set('limit', params.limit);
+  if (params.npcId) query.set('npcId', params.npcId);
+  if (params.types) query.set('types', params.types);
+  const res = await fetch(`${BASE}/api/events?${query}`, { headers: authHeaders() });
+  if (res.status === 401) { logout(); throw new Error('Session expired'); }
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// Persist GM-generated events after a turn
+// events: [{ type, npcId, description, flags }]
+// gameMinutes: current game time when events occurred
+// location: current location
+export async function logEvents(events, gameMinutes, location) {
+  if (!events || events.length === 0) return;
+  const enriched = events.map(e => ({
+    game_time: gameMinutes,
+    event_type: e.type || 'general',
+    location: e.location || location || null,
+    npc_id: e.npcId || null,
+    description: e.description || '',
+    flags: e.flags || {},
+  }));
+  await fetch(`${BASE}/api/events`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ events: enriched }),
+  });
+}
+
 // ─── GM ──────────────────────────────────────────────────────────────────────
 
 // Build a reduced NPC context to send with GM calls

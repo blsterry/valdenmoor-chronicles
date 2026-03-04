@@ -35,6 +35,19 @@ CREATE TABLE IF NOT EXISTS npc_states (
   UNIQUE(user_id, npc_id)
 );
 
+-- Game event log: tracks every meaningful action with game-time for NPC memory, timed events, needs
+CREATE TABLE IF NOT EXISTS game_events (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+  game_time   INTEGER NOT NULL,        -- game minutes from start (0 = Day 1, 18:00)
+  event_type  TEXT NOT NULL,           -- 'npc_interaction'|'location_entered'|'item_acquired'|'combat'|'rest'|'quest'|'timed_event'|'travel'|'general'
+  location    TEXT,
+  npc_id      TEXT,
+  description TEXT NOT NULL,
+  flags       JSONB DEFAULT '{}',      -- { expires_at_game_time, quest_id, completed, ... }
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Insert your admin account (change username/password before running)
 -- Password here is "changeme" — update immediately after first login
 INSERT INTO users (username, password, is_admin)

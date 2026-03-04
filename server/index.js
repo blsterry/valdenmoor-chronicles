@@ -111,6 +111,7 @@ app.delete('/api/admin/users/:id/save', adminAuth, async (req, res) => {
   const { id } = req.params;
   await pool.query('DELETE FROM saves WHERE user_id = $1', [id]);
   await pool.query('DELETE FROM npc_states WHERE user_id = $1', [id]);
+  await pool.query('DELETE FROM game_events WHERE user_id = $1', [id]);
   res.json({ ok: true });
 });
 
@@ -143,6 +144,7 @@ app.post('/api/save', auth, async (req, res) => {
 app.delete('/api/save', auth, async (req, res) => {
   await pool.query('DELETE FROM saves WHERE user_id = $1', [req.user.id]);
   await pool.query('DELETE FROM npc_states WHERE user_id = $1', [req.user.id]);
+  await pool.query('DELETE FROM game_events WHERE user_id = $1', [req.user.id]);
   res.json({ ok: true });
 });
 
@@ -222,6 +224,49 @@ app.post('/api/npc-states', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Game Events routes ───────────────────────────────────────────────────────
+// Append-only log of in-game events for time tracking, NPC memory, and timed events.
+
+app.get('/api/events', auth, async (req, res) => {
+  const { limit = 100, npcId, types } = req.query;
+  const params = [req.user.id];
+  const conditions = ['user_id = $1'];
+
+  if (npcId) {
+    params.push(npcId);
+    conditions.push(`npc_id = $${params.length}`);
+  }
+  if (types) {
+    params.push(types.split(','));
+    conditions.push(`event_type = ANY($${params.length})`);
+  }
+
+  params.push(parseInt(limit));
+  const { rows } = await pool.query(
+    `SELECT * FROM game_events WHERE ${conditions.join(' AND ')} ORDER BY game_time DESC LIMIT $${params.length}`,
+    params
+  );
+  res.json(rows.reverse()); // chronological order
+});
+
+app.post('/api/events', auth, async (req, res) => {
+  const { events } = req.body;
+  if (!events || !Array.isArray(events) || events.length === 0)
+    return res.status(400).json({ error: 'events array required' });
+
+  for (const ev of events) {
+    const { game_time, event_type, location, npc_id, description, flags } = ev;
+    if (!description || game_time == null) continue;
+    await pool.query(
+      `INSERT INTO game_events (user_id, game_time, event_type, location, npc_id, description, flags)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user.id, game_time, event_type || 'general', location || null,
+       npc_id || null, description, JSON.stringify(flags || {})]
+    );
+  }
+  res.json({ ok: true });
+});
+
 // ─── Fast Travel route ────────────────────────────────────────────────────────
 // Handles fast travel with random encounter check.
 
@@ -246,7 +291,7 @@ app.post('/api/fast-travel', auth, async (req, res) => {
     const travelPrompt = `[FAST TRAVEL ENCOUNTER] ${character.name} is traveling from ${fromLoc?.name || fromLocation} to ${toLoc?.name || toLocation} along the road. They are partway through the journey when something interrupts their travel. Generate a meaningful random encounter appropriate to the terrain and character level ${character.level}. This could be: bandits, a traveler in need, a strange phenomenon, an unusual creature, an abandoned scene with clues. The encounter should fit the world's tone. End the scene with the character near ${toLoc?.name || toLocation} — they will arrive but must deal with this first. Include stateChanges as appropriate. Keep it to 2-3 short paragraphs.`;
 
     try {
-      const systemPrompt = buildSystemPrompt(character, {});
+      const systemPrompt = buildSystemPrompt(character, {}, []);
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
@@ -313,7 +358,14 @@ app.post('/api/gm', auth, async (req, res) => {
   if (!character || !messages)
     return res.status(400).json({ error: 'Missing character or messages' });
 
-  const systemPrompt = buildSystemPrompt(character, npcContext || {});
+  // Fetch recent events (last 72 game-hours) for time context
+  const minGameTime = Math.max(0, (character.gameMinutes || 0) - 72 * 60);
+  const { rows: recentEvents } = await pool.query(
+    'SELECT * FROM game_events WHERE user_id = $1 AND game_time >= $2 ORDER BY game_time ASC',
+    [req.user.id, minGameTime]
+  );
+
+  const systemPrompt = buildSystemPrompt(character, npcContext || {}, recentEvents);
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -391,6 +443,19 @@ async function runMigrations() {
         UNIQUE(user_id, npc_id)
       );
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS game_events (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        game_time   INTEGER NOT NULL,
+        event_type  TEXT NOT NULL,
+        location    TEXT,
+        npc_id      TEXT,
+        description TEXT NOT NULL,
+        flags       JSONB DEFAULT '{}',
+        created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
     console.log('Migrations OK');
   } catch (err) {
     console.error('Migration error:', err);
@@ -401,12 +466,112 @@ runMigrations().then(() => {
   app.listen(PORT, () => console.log(`Valdenmoor server running on port ${PORT}`));
 });
 
+// ─── Game Time Helpers ────────────────────────────────────────────────────────
+// Game starts at 18:00 Day 1 (1080 minutes from midnight).
+
+const GAME_START_OFFSET = 1080;
+
+function formatAbsTime(gameMinutes) {
+  const abs = (gameMinutes || 0) + GAME_START_OFFSET;
+  const dayNum = Math.floor(abs / 1440) + 1;
+  const todMin = abs % 1440;
+  const hr = Math.floor(todMin / 60);
+  const mn = todMin % 60;
+  const hr12 = ((hr % 12) || 12);
+  const ampm = hr >= 12 ? 'PM' : 'AM';
+  const label = todMin < 300  ? 'dead of night'
+    : todMin < 360  ? 'pre-dawn'
+    : todMin < 480  ? 'dawn'
+    : todMin < 660  ? 'morning'
+    : todMin < 720  ? 'late morning'
+    : todMin < 840  ? 'early afternoon'
+    : todMin < 1020 ? 'afternoon'
+    : todMin < 1080 ? 'late afternoon'
+    : todMin < 1200 ? 'dusk'
+    : todMin < 1320 ? 'evening'
+    : 'night';
+  return { dayNum, hr12, mn: String(mn).padStart(2, '0'), ampm, label };
+}
+
+function formatElapsed(fromGameMinutes, toGameMinutes) {
+  const diff = toGameMinutes - fromGameMinutes;
+  if (diff <= 0) return 'just now';
+  if (diff < 60) return `${diff}m ago`;
+  if (diff < 1440) {
+    const h = Math.floor(diff / 60), m = diff % 60;
+    return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`;
+  }
+  const days = Math.floor(diff / 1440);
+  return `${days} day${days > 1 ? 's' : ''} ago`;
+}
+
+function hungerLabel(h)  { return h < 25 ? 'well fed' : h < 50 ? 'hungry' : h < 75 ? 'famished' : 'starving'; }
+function thirstLabel(t)  { return t < 25 ? 'hydrated' : t < 50 ? 'thirsty' : t < 75 ? 'parched' : 'desperate for water'; }
+function fatigueLabel(f) { return f < 25 ? 'rested' : f < 50 ? 'tired' : f < 75 ? 'exhausted' : 'near collapse'; }
+
+function buildTimeContextSection(character, recentEvents) {
+  const gm = character.gameMinutes || 0;
+  const t = formatAbsTime(gm);
+  const lines = ['── TIME CONTEXT ──'];
+  lines.push(`Now: Day ${t.dayNum}, ${t.label} (${t.hr12}:${t.mn} ${t.ampm}) — ${gm} game-minutes elapsed since Day 1 dusk`);
+
+  const h = character.hunger  || 0;
+  const th = character.thirst || 0;
+  const f = character.fatigue || 0;
+  const critical = [];
+  if (h  >= 75) critical.push('STARVING');
+  if (th >= 75) critical.push('DESPERATELY THIRSTY');
+  if (f  >= 75) critical.push('NEAR COLLAPSE FROM FATIGUE');
+  lines.push(`Physical state: ${hungerLabel(h)} (${Math.round(h)}/100 hunger), ${thirstLabel(th)} (${Math.round(th)}/100 thirst), ${fatigueLabel(f)} (${Math.round(f)}/100 fatigue)`);
+  if (critical.length > 0)
+    lines.push(`  ⚠ CRITICAL NEEDS: ${critical.join(', ')} — MUST affect narration and NPC reactions immediately`);
+
+  if (recentEvents && recentEvents.length > 0) {
+    lines.push('\nRECENT EVENTS (chronological):');
+    for (const ev of recentEvents.slice(-25)) {
+      const et = formatAbsTime(ev.game_time);
+      const npcPart = ev.npc_id ? ` [${ev.npc_id}]` : '';
+      lines.push(`  [Day ${et.dayNum}, ${et.hr12}:${et.mn} ${et.ampm}] ${ev.location || '?'}${npcPart}: ${ev.description}`);
+    }
+
+    // NPC last-seen index
+    const npcLastSeen = {};
+    for (const ev of recentEvents) {
+      if (ev.npc_id && (!npcLastSeen[ev.npc_id] || ev.game_time > npcLastSeen[ev.npc_id].game_time))
+        npcLastSeen[ev.npc_id] = ev;
+    }
+    const npcEntries = Object.entries(npcLastSeen);
+    if (npcEntries.length > 0) {
+      lines.push('\nNPC LAST SEEN — use for time-aware dialogue ("back already?", "haven\'t seen you in days"):');
+      for (const [npcId, ev] of npcEntries.slice(0, 15)) {
+        const et = formatAbsTime(ev.game_time);
+        lines.push(`  ${npcId}: Day ${et.dayNum} ${et.hr12}:${et.mn} ${et.ampm} — ${formatElapsed(ev.game_time, gm)}, at ${ev.location || '?'}`);
+      }
+    }
+
+    // Active timed events (not yet expired)
+    const timedEvents = recentEvents.filter(e => e.flags?.expires_at_game_time && e.flags.expires_at_game_time > gm);
+    if (timedEvents.length > 0) {
+      lines.push('\nACTIVE TIMED EVENTS:');
+      for (const ev of timedEvents) {
+        const remaining = ev.flags.expires_at_game_time - gm;
+        const rt = formatAbsTime(ev.flags.expires_at_game_time);
+        const rStr = remaining < 60 ? `${remaining}m` : remaining < 1440 ? `${Math.floor(remaining/60)}h ${remaining%60}m` : `${Math.floor(remaining/1440)}d`;
+        lines.push(`  [Expires Day ${rt.dayNum}, ${rt.hr12}:${rt.mn} ${rt.ampm} — ${rStr} remaining] ${ev.description}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // ─── System Prompt Builder ────────────────────────────────────────────────────
 
-function buildSystemPrompt(character, npcContext) {
+function buildSystemPrompt(character, npcContext, recentEvents = []) {
   const npcSection  = buildNpcContextSection(character, npcContext);
   const skillSection = buildSkillSection(character);
   const mapSection   = buildMapSection(character);
+  const timeSection  = buildTimeContextSection(character, recentEvents);
 
   return `You are the Game Master for "Valdenmoor Chronicles," a medieval open-world RPG.
 
@@ -416,6 +581,8 @@ ${EXPANDED_LORE}
 
 CURRENT CHARACTER:
 ${JSON.stringify(character, null, 2)}
+
+${timeSection}
 
 ${npcSection}
 
@@ -467,6 +634,15 @@ SKILL SYSTEM RULES:
 - Use updateSkill when gate is met and XP threshold is crossed (include full updated skill object).
 - Use addSkill only for initial skill acquisition (Tier 1, first lesson from a teacher).
 
+TIME & NEEDS RULES — CRITICAL:
+- Every response MUST include minutesElapsed: how many game-minutes this action takes.
+  Short actions (look, listen, quick talk): 5-15 min. Conversations: 15-45 min. Meals/rest: 30-90 min. Travel on foot: 30-240 min. Sleep: 360-540 min.
+- Physical needs accumulate automatically from minutesElapsed. You may adjust them with hungerDelta/thirstDelta/fatigueDelta in stateChanges (negative = relief: eating=-30 to -60, drinking=-20 to -50, short rest fatigueDelta=-15, sleep=-80 to -100).
+- When needs are critical (75+), NPCs notice. A starving character gets different treatment. A near-collapse character should be pushed to rest.
+- Use logEvents to record meaningful events. Each event gets stored and future GMs see it. Be specific.
+- For timed events (market closing, a ship departing, a patrol schedule), include flags.expires_at_game_time in the logEvent.
+- NPCs reference time honestly — check NPC LAST SEEN. "Back already?" if <2 hours. "Haven't seen you in a while" if >24 hours. "Didn't think I'd see you again" if >7 days.
+
 WAYPOINT RULES:
 - Use addWaypoint when player explicitly establishes a camp, sets up a base, or declares intent to return.
 - Not every visit earns a waypoint — only deliberate establishment.
@@ -483,6 +659,7 @@ RESPONSE SCHEMA:
 {
   "narrative": "2-3 short grounded paragraphs",
   "scenePrompt": "8-12 word visual scene description",
+  "minutesElapsed": 15,
   "stateChanges": {
     "hp": null,
     "mp": null,
@@ -500,7 +677,10 @@ RESPONSE SCHEMA:
     "addWaypoint": null,
     "npcRelationChange": null,
     "addQuestFlag": null,
-    "levelUp": false
+    "levelUp": false,
+    "hungerDelta": null,
+    "thirstDelta": null,
+    "fatigueDelta": null
   },
   "npcStateChanges": [
     {
@@ -508,6 +688,14 @@ RESPONSE SCHEMA:
       "relationshipDelta": 0,
       "memorySummary": "1-2 sentence summary of what happened in this interaction",
       "teachingProgress": null,
+      "flags": {}
+    }
+  ],
+  "logEvents": [
+    {
+      "type": "npc_interaction|location_entered|item_acquired|combat|rest|quest|timed_event|travel|general",
+      "npcId": null,
+      "description": "Concise description of what happened — this persists as history",
       "flags": {}
     }
   ],
