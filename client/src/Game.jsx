@@ -5,8 +5,15 @@ import WorldMap from './WorldMap.jsx';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
+const BACKSTORY_OPTIONS = [
+  "Searching for someone — they passed through here and haven't been heard from since.",
+  "Word reached you of strange work and stranger coin near Valdenmoor.",
+  "A traveling trader. That's what you tell people, at least.",
+  "The road looked better than whatever you were leaving behind.",
+];
+
 const INITIAL_CHARACTER = {
-  name: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
+  name: '', gender: 'they', backstory: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
   stats: { STR: 8, DEX: 8, INT: 8, WIS: 8, CON: 8, CHA: 8 },
   hp: 20, maxHp: 20, mp: 10, maxMp: 10, gold: 15,
   inventory: ["Worn Traveler's Cloak", 'Flint & Steel', 'Waterskin', '3x Hardtack'],
@@ -341,6 +348,11 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [statAlloc, setStatAlloc]     = useState(null);
   const [npcStates, setNpcStates]     = useState({});   // { npcId: { relationship, memory, ... } }
   const [showMap, setShowMap]         = useState(false);
+  const [showSettings, setShowSettings]   = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
+  const [tempGender, setTempGender]       = useState('they');
+  const [tempBackstory, setTempBackstory] = useState('');
   const logEndRef = useRef(null);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
@@ -530,7 +542,7 @@ export default function Game({ user, onLogout, onAdmin }) {
         showNotif(`⬡ Arrived at ${locName}`, 'travel');
         // Now call GM to generate the arrival scene
         setTimeout(() => {
-          callGM(newChar, messages, `[ARRIVAL] ${character.name} has just arrived at ${locName} via fast travel. Generate a brief arrival scene with the current state of the location. Give 4 options.`);
+          callGM(newChar, messages, `[ARRIVAL] ${character.name} has just arrived at ${locName} via fast travel. Generate a brief, direct arrival scene describing the current state of the location. 2-3 short paragraphs.`);
         }, 500);
       }
     } catch (err) {
@@ -554,8 +566,23 @@ export default function Game({ user, onLogout, onAdmin }) {
 
   const handleNameSubmit = () => {
     if (!tempName.trim()) return;
-    setStatAlloc({ ...INITIAL_CHARACTER, name: tempName.trim() });
+    setStatAlloc({ ...INITIAL_CHARACTER, name: tempName.trim(), gender: tempGender });
+    setScreen('backstory');
+  };
+
+  const handleBackstorySubmit = (backstory) => {
+    setStatAlloc(prev => ({ ...prev, backstory: backstory || '' }));
+    setTempBackstory('');
     setScreen('statAlloc');
+  };
+
+  const toggleLightMode = () => {
+    setLightMode(prev => {
+      const next = !prev;
+      localStorage.setItem('vrc-theme', next ? 'light' : 'dark');
+      return next;
+    });
+    setShowSettings(false);
   };
 
   const adjustStat = (stat, delta) => {
@@ -572,7 +599,9 @@ export default function Game({ user, onLogout, onAdmin }) {
     const char = { ...statAlloc, ...derived, hp: derived.maxHp, mp: derived.maxMp, statPoints: 0 };
     setCharacter(char);
     setScreen('game');
-    const intro = `[GAME START] Character: ${char.name}, a classless Human with ${JSON.stringify(char.stats)}. Begin with a rich atmospheric opening scene at the crossroads of Valdenmoor at dusk. Introduce the world with mystery and the first hints of the Forgetting. Give 4 compelling starting options.`;
+    const pronounRef = char.gender === 'she' ? 'she/her' : char.gender === 'he' ? 'he/him' : 'they/them';
+    const backstoryCtx = char.backstory ? ` Reason for being at the crossroads: "${char.backstory}".` : '';
+    const intro = `[GAME START] Character: ${char.name} (${pronounRef}), classless Human. Stats: ${JSON.stringify(char.stats)}.${backstoryCtx} Open with a direct, grounded scene at the crossroads at dusk. The character has just arrived on foot. They are OUTSIDE — they can see the inn's warm light, smell woodsmoke and damp earth, hear muffled noise from inside the inn but make out no words. Describe the crossroads, the shrine, the noticeboard, the road. Do not describe anything inside the inn or quote conversations they cannot hear. Keep it to 2-3 short paragraphs.`;
     callGM(char, [], intro, true);
   };
 
@@ -627,13 +656,55 @@ export default function Game({ user, onLogout, onAdmin }) {
   if (screen === 'name') return (
     <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',height:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
       <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'1.5rem'}}>YOUR NAME</div>
-      <input value={tempName} onChange={e=>setTempName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleNameSubmit()}
+      <input value={tempName} onChange={e=>setTempName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&tempName.trim()&&handleNameSubmit()}
         placeholder="" autoFocus
-        style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.5)',color:'#e8c87a',fontSize:'1.8rem',textAlign:'center',padding:'0.5rem 1rem',fontFamily:'Georgia, serif',outline:'none',width:'280px',marginBottom:'2.5rem'}}/>
+        style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.5)',color:'#e8c87a',fontSize:'1.8rem',textAlign:'center',padding:'0.5rem 1rem',fontFamily:'Georgia, serif',outline:'none',width:'280px',marginBottom:'2rem'}}/>
+      <div style={{marginBottom:'2rem'}}>
+        <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.15em',marginBottom:'0.7rem',textAlign:'center'}}>PRONOUNS</div>
+        <div style={{display:'flex',gap:'0.5rem'}}>
+          {[['he','He/Him'],['she','She/Her'],['they','They/Them']].map(([val,label])=>(
+            <button key={val} onClick={()=>setTempGender(val)}
+              style={{background:tempGender===val?'rgba(201,169,110,0.2)':'transparent',border:`1px solid ${tempGender===val?'#c9a96e':'rgba(201,169,110,0.3)'}`,color:tempGender===val?'#e8c87a':'#6a5a4a',padding:'0.4rem 0.9rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.78rem',transition:'all 0.15s'}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <button onClick={handleNameSubmit} disabled={!tempName.trim()}
         style={{background:'transparent',border:'1px solid rgba(201,169,110,0.5)',color:'#c9a96e',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:tempName.trim()?'pointer':'not-allowed',fontFamily:'Georgia, serif',letterSpacing:'0.1em',opacity:tempName.trim()?1:0.4}}>
         Continue →
       </button>
+    </div>
+  );
+
+  // ─── Backstory ─────────────────────────────────────────────────────────────
+
+  if (screen === 'backstory') return (
+    <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
+      <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'0.5rem'}}>WHAT BRINGS YOU TO THE CROSSROADS?</div>
+      <div style={{color:'#3a2a1a',fontSize:'0.68rem',marginBottom:'1.5rem'}}>Choose one or write your own.</div>
+      <div style={{display:'flex',flexDirection:'column',gap:'0.5rem',width:'100%',maxWidth:'440px',marginBottom:'1.25rem'}}>
+        {BACKSTORY_OPTIONS.map((opt,i)=>(
+          <button key={i} onClick={()=>setTempBackstory(opt)}
+            style={{background:tempBackstory===opt?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${tempBackstory===opt?'#c9a96e':'rgba(201,169,110,0.25)'}`,color:tempBackstory===opt?'#e8c87a':'#8a7a6a',padding:'0.6rem 1rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.82rem',textAlign:'left',lineHeight:'1.5',transition:'all 0.15s'}}>
+            {opt}
+          </button>
+        ))}
+      </div>
+      <textarea value={tempBackstory} onChange={e=>setTempBackstory(e.target.value)}
+        placeholder="Or write your own reason..."
+        rows={2}
+        style={{background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.3)',color:'#d4c4a0',fontFamily:'Georgia, serif',fontSize:'0.85rem',padding:'0.4rem 0.25rem',outline:'none',width:'100%',maxWidth:'440px',resize:'none',marginBottom:'1.5rem'}}/>
+      <div style={{display:'flex',gap:'0.75rem'}}>
+        <button onClick={()=>handleBackstorySubmit(tempBackstory)}
+          style={{background:tempBackstory.trim()?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${tempBackstory.trim()?'rgba(201,169,110,0.7)':'rgba(201,169,110,0.3)'}`,color:tempBackstory.trim()?'#c9a96e':'#6a5a4a',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:'pointer',fontFamily:'Georgia, serif',letterSpacing:'0.1em'}}>
+          Continue →
+        </button>
+        <button onClick={()=>handleBackstorySubmit('')}
+          style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif'}}>
+          Skip
+        </button>
+      </div>
     </div>
   );
 
@@ -676,8 +747,40 @@ export default function Game({ user, onLogout, onAdmin }) {
   if (screen === 'game' && character) {
     const hpColor = character.hp/character.maxHp>0.6?'#4caf7a':character.hp/character.maxHp>0.3?'#e8c87a':'#c94a4a';
 
+    const pal = lightMode ? {
+      mainBg: 'radial-gradient(ellipse at top, #d9c9a0 0%, #c4ad80 100%)',
+      headerBg: 'rgba(180,155,105,0.92)',
+      headerBorder: 'rgba(100,70,30,0.3)',
+      panelBg: 'rgba(210,185,145,0.97)',
+      panelBorder: 'rgba(100,70,30,0.25)',
+      logEntryBg: 'rgba(180,150,100,0.12)',
+      inputBg: 'rgba(170,145,95,0.75)',
+      footerBg: 'rgba(180,155,105,0.7)',
+      textMain: '#1a0e04',
+      textMuted: '#5a3a1a',
+      textAccent: '#7a4a10',
+      settingsBg: '#d0b888',
+      settingsBorder: 'rgba(100,70,30,0.5)',
+      settingsText: '#2a1a0a',
+    } : {
+      mainBg: theme.bg,
+      headerBg: 'rgba(0,0,0,0.5)',
+      headerBorder: 'rgba(201,169,110,0.2)',
+      panelBg: 'rgba(0,0,0,0.85)',
+      panelBorder: 'rgba(201,169,110,0.2)',
+      logEntryBg: 'rgba(0,0,0,0.2)',
+      inputBg: 'rgba(0,0,0,0.6)',
+      footerBg: 'rgba(0,0,0,0.4)',
+      textMain: '#d4c4a0',
+      textMuted: '#6a5a4a',
+      textAccent: '#e8c87a',
+      settingsBg: '#0a0a0f',
+      settingsBorder: 'rgba(201,169,110,0.4)',
+      settingsText: '#d4c4a0',
+    };
+
     return (
-      <div style={{background:theme.bg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:'#d4c4a0',transition:'background 2s ease',maxWidth:'860px',margin:'0 auto'}}>
+      <div style={{background:pal.mainBg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:pal.textMain,transition:'background 2s ease',maxWidth:'860px',margin:'0 auto'}}>
         <Notification notification={notification}/>
 
         {/* WORLD MAP OVERLAY */}
@@ -690,22 +793,65 @@ export default function Game({ user, onLogout, onAdmin }) {
           />
         )}
 
+        {/* HOW TO PLAY MODAL */}
+        {showHowToPlay && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+            <div style={{maxWidth:'480px',width:'100%',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,padding:'1.5rem 1.75rem',fontFamily:'Georgia, serif'}}>
+              <div style={{color:pal.textAccent,fontSize:'0.75rem',letterSpacing:'0.15em',marginBottom:'1.25rem'}}>HOW TO PLAY</div>
+              <div style={{color:pal.textMain,fontSize:'0.88rem',lineHeight:'1.75'}}>
+                <p style={{marginBottom:'0.75rem'}}><strong style={{color:pal.textAccent}}>Type anything</strong> in the input to act. Describe what your character does, says, examines, or attempts. The world responds to what you do.</p>
+                <p style={{marginBottom:'0.75rem'}}><strong style={{color:pal.textAccent}}>Stats</strong> shape outcomes — Strength for combat, Dexterity for stealth, Intellect for magic, Wisdom for perception, Constitution for endurance, Charisma for social situations.</p>
+                <p style={{marginBottom:'0.75rem'}}><strong style={{color:pal.textAccent}}>Skills</strong> are taught by NPCs. Earn their trust. Teaching takes time.</p>
+                <p style={{marginBottom:'0.75rem'}}><strong style={{color:pal.textAccent}}>Waypoints</strong> mark locations for fast travel. Set them by visiting a place and establishing a presence — the GM will note it. Fast travel is possible between waypoints, but the road is never entirely safe.</p>
+                <p style={{marginBottom:'0'}}>Pay attention to what people say, what they don't say, and who's asking.</p>
+              </div>
+              <button onClick={()=>setShowHowToPlay(false)}
+                style={{marginTop:'1.25rem',background:'transparent',border:`1px solid ${pal.settingsBorder}`,color:pal.textAccent,padding:'0.5rem 1.5rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.82rem'}}>
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* HEADER */}
-        <div style={{background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.5rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem',position:'sticky',top:0,zIndex:100}}>
+        <div style={{background:pal.headerBg,backdropFilter:'blur(4px)',borderBottom:`1px solid ${pal.headerBorder}`,padding:'0.5rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem',position:'sticky',top:0,zIndex:100}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'0.4rem'}}>
             <div>
-              <span style={{color:'#e8c87a',fontSize:'0.95rem'}}>{character.name}</span>
-              <span style={{color:'#4a3a2a',fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
-              <span style={{color:'#6a5a4a',fontSize:'0.75rem'}}>Lv {character.level}</span>
-              <span style={{color:'#4a3a2a',fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
-              <span style={{color:'#5a6a4a',fontSize:'0.7rem',fontStyle:'italic'}}>
+              <span style={{color:pal.textAccent,fontSize:'0.95rem'}}>{character.name}</span>
+              <span style={{color:pal.textMuted,fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
+              <span style={{color:pal.textMuted,fontSize:'0.75rem'}}>Lv {character.level}</span>
+              <span style={{color:pal.textMuted,fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
+              <span style={{color:pal.textMuted,fontSize:'0.7rem',fontStyle:'italic'}}>
                 {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
               </span>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
-              <span style={{color:'#c9a96e',fontSize:'0.8rem'}}>💰 {character.gold}g</span>
-              {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:'#4a3a2a',cursor:'pointer',fontSize:'0.6rem',fontFamily:'Georgia, serif'}}>admin</button>}
-              <button onClick={onLogout} style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.6rem',fontFamily:'Georgia, serif'}}>sign out</button>
+              <span style={{color:pal.textAccent,fontSize:'0.8rem'}}>💰 {character.gold}g</span>
+              {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:pal.textMuted,cursor:'pointer',fontSize:'0.6rem',fontFamily:'Georgia, serif'}}>admin</button>}
+              {/* Settings */}
+              <div style={{position:'relative'}}>
+                <button onClick={()=>setShowSettings(p=>!p)}
+                  style={{background:showSettings?`rgba(201,169,110,0.15)`:'transparent',border:`1px solid ${showSettings?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:pal.textAccent,padding:'0.2rem 0.55rem',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif',letterSpacing:'0.05em',transition:'all 0.15s'}}>
+                  ⚙
+                </button>
+                {showSettings && (
+                  <div style={{position:'absolute',right:0,top:'calc(100% + 4px)',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,zIndex:300,minWidth:'160px',fontFamily:'Georgia, serif',boxShadow:'0 4px 16px rgba(0,0,0,0.5)'}}>
+                    {[
+                      [lightMode ? '☾ Dark Mode' : '☀ Light Mode', toggleLightMode],
+                      ['? How to Play', ()=>{setShowHowToPlay(true);setShowSettings(false);}],
+                      ['↺ Start Over', ()=>{setShowSettings(false);handleNewGame();}],
+                      ['→ Sign Out', ()=>{setShowSettings(false);onLogout();}],
+                    ].map(([label, fn])=>(
+                      <button key={label} onClick={fn}
+                        style={{display:'block',width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${pal.settingsBorder}40`,color:pal.settingsText,padding:'0.55rem 0.9rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.78rem',textAlign:'left',transition:'background 0.1s'}}
+                        onMouseOver={e=>e.currentTarget.style.background='rgba(201,169,110,0.12)'}
+                        onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div style={{display:'flex',gap:'0.75rem',flexWrap:'wrap',alignItems:'center'}}>
@@ -723,42 +869,42 @@ export default function Game({ user, onLogout, onAdmin }) {
 
         {/* STATS PANEL */}
         {panel==='Stats'&&(
-          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
+          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.5rem',maxWidth:'400px'}}>
               {Object.entries(character.stats).map(([s,v])=>{
                 const mod=Math.floor((v-10)/2);
-                return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:'1px solid rgba(201,169,110,0.15)'}}>
-                  <div style={{color:'#6a5a4a',fontSize:'0.6rem',letterSpacing:'0.1em'}}>{s}</div>
-                  <div style={{color:'#e8c87a',fontSize:'1.2rem'}}>{v}</div>
+                return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:`1px solid ${pal.panelBorder}`}}>
+                  <div style={{color:pal.textMuted,fontSize:'0.6rem',letterSpacing:'0.1em'}}>{s}</div>
+                  <div style={{color:pal.textAccent,fontSize:'1.2rem'}}>{v}</div>
                   <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.65rem'}}>{mod>=0?'+':''}{mod}</div>
                 </div>;
               })}
             </div>
-            {character.statPoints>0&&<div style={{color:'#e8c87a',fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
-            <div style={{marginTop:'0.5rem',color:'#3a2a1a',fontSize:'0.65rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
-              Day {character.dayCount} · {character.race}
+            {character.statPoints>0&&<div style={{color:pal.textAccent,fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
+            <div style={{marginTop:'0.5rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+              {(()=>{const p=character.gender==='he'?'he/him':character.gender==='she'?'she/her':'they/them';return `Day ${character.dayCount} · ${character.race} · ${p}`;})()}
             </div>
           </div>
         )}
 
         {/* PACK PANEL */}
         {panel==='Pack'&&(
-          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
-            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
+          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
+            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
             {character.inventory.length===0
-              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
+              ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
               : (() => {
                   const counts={};
                   character.inventory.forEach(item=>{counts[item]=(counts[item]||0)+1;});
                   return Object.entries(counts).map(([item,count])=>(
-                    <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:'1px solid rgba(201,169,110,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                       <span>· {item}</span>
-                      {count>1&&<span style={{color:'#6a5a4a',fontSize:'0.72rem'}}>×{count}</span>}
+                      {count>1&&<span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
                     </div>
                   ));
                 })()
             }
-            <div style={{marginTop:'0.6rem',color:'#3a2a1a',fontSize:'0.65rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
+            <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
               Use any item by describing it in the input below.
             </div>
           </div>
@@ -766,24 +912,24 @@ export default function Game({ user, onLogout, onAdmin }) {
 
         {/* SKILLS PANEL */}
         {panel==='Skills'&&(
-          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
-            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.6rem'}}>SKILLS</div>
+          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
+            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.6rem'}}>SKILLS</div>
             {character.skills.length===0
-              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>
+              ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>
                   No skills yet. Skills are learned slowly from willing teachers — and teachers must be earned.
                 </div>
               : character.skills.map(sk => <SkillProgressBar key={sk.id || sk.name} skill={sk}/>)
             }
-            <div style={{marginTop:'0.5rem',color:'#3a2a1a',fontSize:'0.62rem',fontStyle:'italic',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.4rem'}}>
-              Skills advance through practice (XP) and meeting tier gate requirements. XP is awarded by the GM when you use a skill meaningfully.
+            <div style={{marginTop:'0.5rem',color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+              Skills advance through practice (XP) and meeting tier gate requirements.
             </div>
           </div>
         )}
 
         {/* SPELLS PANEL */}
         {panel==='Spells'&&(
-          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
-            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
+          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
+            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
             {character.spells.length===0 && (character.spellLearning?.length === 0 || !character.spellLearning)
               ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach. Magic is not given — it is earned through trust and time.</div>
               : character.spells.map((sp,i)=>(
@@ -818,8 +964,8 @@ export default function Game({ user, onLogout, onAdmin }) {
 
         {/* LORE PANEL */}
         {panel==='Lore'&&(
-          <div style={{background:'rgba(0,0,0,0.85)',borderBottom:'1px solid rgba(201,169,110,0.2)',padding:'0.75rem'}}>
-            <div style={{color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
+          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
+            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
             {Object.keys(character.flags).length===0
               ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet. Investigate the world.</div>
               : Object.entries(character.flags).filter(([k])=>!k.startsWith('notable_')).map(([k,v])=>(
@@ -858,14 +1004,14 @@ export default function Game({ user, onLogout, onAdmin }) {
         )}
 
         {/* NARRATIVE LOG */}
-        <div style={{flex:1,overflowY:'auto'}}>
+        <div style={{flex:1,overflowY:'auto'}} onClick={()=>showSettings&&setShowSettings(false)}>
           {displayLog.map((entry,i)=>{
             if (entry.hidden) return null;
             if (entry.type==='player') return (
               <div key={i} style={{padding:'0.6rem 1rem',marginBottom:'0.25rem'}}>
-                <div style={{display:'flex',alignItems:'flex-start',gap:'0.5rem',padding:'0.5rem 0.75rem',background:'rgba(201,169,110,0.06)',borderLeft:'2px solid rgba(201,169,110,0.4)'}}>
-                  <span style={{color:'#5a4a3a',fontSize:'0.68rem',marginTop:'0.2rem',whiteSpace:'nowrap'}}>You</span>
-                  <span style={{color:'#b09a70',fontStyle:'italic',fontSize:'0.88rem',lineHeight:'1.6'}}>{entry.text}</span>
+                <div style={{display:'flex',alignItems:'flex-start',gap:'0.5rem',padding:'0.5rem 0.75rem',background:pal.logEntryBg,borderLeft:'2px solid rgba(201,169,110,0.4)'}}>
+                  <span style={{color:pal.textMuted,fontSize:'0.68rem',marginTop:'0.2rem',whiteSpace:'nowrap'}}>You</span>
+                  <span style={{color:lightMode?'#5a3a10':'#b09a70',fontStyle:'italic',fontSize:'0.88rem',lineHeight:'1.6'}}>{entry.text}</span>
                 </div>
               </div>
             );
@@ -873,53 +1019,31 @@ export default function Game({ user, onLogout, onAdmin }) {
             return (
               <div key={i} style={{marginBottom:'0.5rem'}}>
                 {entry.scenePrompt&&<div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>}
-                <div style={{padding:'1rem 1rem 0.75rem',background:'rgba(0,0,0,0.2)',borderLeft:`2px solid ${entryTheme.accent}33`}}>
-                  <div style={{lineHeight:'1.95',fontSize:'0.92rem',color:'#d4c4a0',whiteSpace:'pre-wrap'}}>{entry.text}</div>
+                <div style={{padding:'1rem 1rem 0.75rem',background:pal.logEntryBg,borderLeft:`2px solid ${entryTheme.accent}33`}}>
+                  <div style={{lineHeight:'1.95',fontSize:'0.92rem',color:pal.textMain,whiteSpace:'pre-wrap'}}>{entry.text}</div>
                 </div>
               </div>
             );
           })}
-          {loading&&<div style={{textAlign:'center',padding:'1.5rem',color:'#4a3a5a',fontStyle:'italic',fontSize:'0.85rem',letterSpacing:'0.1em'}}>✦ &nbsp; the oracle stirs &nbsp; ✦</div>}
+          {loading&&<div style={{textAlign:'center',padding:'1.5rem',color:lightMode?'#7a5a2a':'#4a3a5a',fontStyle:'italic',fontSize:'0.85rem',letterSpacing:'0.1em'}}>✦ &nbsp; the oracle stirs &nbsp; ✦</div>}
           <div ref={logEndRef}/>
         </div>
 
-        {/* OPTIONS */}
-        {options.length>0&&!loading&&(
-          <div style={{padding:'0.6rem 0.75rem 0.5rem',background:'rgba(0,0,0,0.35)',borderTop:'1px solid rgba(201,169,110,0.12)'}}>
-            <div style={{fontSize:'0.62rem',color:'#4a3a2a',letterSpacing:'0.12em',marginBottom:'0.4rem',textAlign:'center'}}>
-              SUGGESTED ACTIONS — or type anything below
-            </div>
-            <div style={{display:'grid',gridTemplateColumns:options.length>2?'1fr 1fr':'1fr',gap:'0.35rem'}}>
-              {options.map((opt,i)=>(
-                <button key={i} onClick={()=>handleSend(opt)}
-                  style={{background:'rgba(201,169,110,0.05)',border:'1px solid rgba(201,169,110,0.22)',color:'#b09a70',padding:'0.5rem 0.65rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.8rem',textAlign:'left',lineHeight:'1.5',transition:'all 0.15s'}}
-                  onMouseOver={e=>{e.currentTarget.style.background='rgba(201,169,110,0.15)';e.currentTarget.style.color='#e8c87a'}}
-                  onMouseOut={e=>{e.currentTarget.style.background='rgba(201,169,110,0.05)';e.currentTarget.style.color='#b09a70'}}>
-                  <span style={{color:'#4a3a2a',marginRight:'0.4rem',fontSize:'0.65rem'}}>{['I','II','III','IV'][i]}.</span>
-                  {opt}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* INPUT */}
-        <div style={{padding:'0.5rem 0.75rem 0.6rem',background:'rgba(0,0,0,0.6)',borderTop:'1px solid rgba(201,169,110,0.15)'}}>
+        <div style={{padding:'0.5rem 0.75rem 0.6rem',background:pal.inputBg,borderTop:`1px solid ${pal.headerBorder}`}}>
           <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
             <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
               placeholder="What do you do?"
               disabled={loading}
-              style={{flex:1,background:'transparent',border:'none',borderBottom:'1px solid rgba(201,169,110,0.3)',color:'#d4c4a0',fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
+              style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${pal.headerBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
             <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()}
-              style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.2)'}`,color:input.trim()?'#c9a96e':'#4a3a2a',padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+              style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.headerBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
           </div>
         </div>
 
         {/* FOOTER */}
-        <div style={{textAlign:'center',padding:'0.3rem',background:'rgba(0,0,0,0.4)',borderTop:'1px solid rgba(201,169,110,0.08)'}}>
-          <button onClick={handleNewGame} style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.65rem',fontFamily:'Georgia, serif',letterSpacing:'0.1em'}}>
-            ✝ new game
-          </button>
+        <div style={{textAlign:'center',padding:'0.3rem',background:pal.footerBg,borderTop:`1px solid ${pal.panelBorder}`}}>
+          <span style={{color:pal.textMuted,fontSize:'0.62rem',fontFamily:'Georgia, serif',fontStyle:'italic',opacity:0.5}}>Valdenmoor Chronicles</span>
         </div>
       </div>
     );

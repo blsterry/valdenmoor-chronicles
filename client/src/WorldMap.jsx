@@ -3,27 +3,28 @@ import { useState, useCallback } from 'react';
 // ─── Map Data (client-side copy for rendering) ───────────────────────────────
 // Mirrors server/lore.js MAP_DATA — keep in sync if locations change.
 
+// Coordinates scaled for 800x600 viewBox (original 640x480 × 1.25)
 const LOCATIONS = [
-  { id: 'crossroads',      name: 'The Crossroads',             x: 300, y: 280, type: 'landmark'   },
-  { id: 'thornhaven',      name: 'Thornhaven',                 x: 250, y: 180, type: 'village'    },
-  { id: 'valdenmoor',      name: 'Valdenmoor',                 x: 410, y: 215, type: 'city'       },
-  { id: 'port_saltmere',   name: 'Port Saltmere',              x: 495, y: 310, type: 'town'       },
-  { id: 'whisperwood',     name: 'Whisperwood',                x: 230, y: 360, type: 'wilderness' },
-  { id: 'aethra_ruins',    name: 'Aethra Ruins',               x: 155, y: 200, type: 'ruins'      },
-  { id: 'iron_gate',       name: 'Iron Gate',                  x: 130, y: 310, type: 'dungeon'    },
-  { id: 'high_moors',      name: 'High Moors',                 x: 150, y:  80, type: 'wilderness' },
-  { id: 'bren_monastery',  name: 'Bren Monastery',             x: 385, y: 130, type: 'landmark'   },
-  { id: 'redgate',         name: 'Redgate',                    x: 200, y: 100, type: 'village'    },
-  { id: 'millhaven',       name: 'Millhaven',                  x: 365, y: 295, type: 'village'    },
-  { id: 'hearthwick',      name: 'Hearthwick',                 x: 290, y: 385, type: 'hamlet'     },
-  { id: 'resonance_nexus', name: 'Resonance Nexus',            x: 290, y: 190, type: 'special'    },
-  { id: 'hermits_tower',   name: "Hermit's Tower",             x: 215, y: 430, type: 'ruins'      },
-  { id: 'sunken_temple',   name: 'Sunken Temple',              x: 520, y: 370, type: 'dungeon'    },
-  { id: 'shattered_spire', name: 'Shattered Spire',            x: 115, y: 105, type: 'ruins'      },
-  { id: 'gray_gardens',    name: 'The Gray Gardens',           x: 205, y: 395, type: 'ruins'      },
-  { id: 'hollow_keep',     name: 'Hollow Keep',                x: 350, y: 415, type: 'dungeon'    },
-  { id: 'engine_chamber',  name: 'Engine Chamber',             x: 405, y: 225, type: 'special',   underground: true },
-  { id: 'under_streets',   name: 'Under-Streets',              x: 400, y: 228, type: 'dungeon',   underground: true },
+  { id: 'crossroads',      name: 'The Crossroads',             x: 375, y: 350, type: 'landmark'   },
+  { id: 'thornhaven',      name: 'Thornhaven',                 x: 312, y: 225, type: 'village'    },
+  { id: 'valdenmoor',      name: 'Valdenmoor',                 x: 512, y: 268, type: 'city'       },
+  { id: 'port_saltmere',   name: 'Port Saltmere',              x: 618, y: 387, type: 'town'       },
+  { id: 'whisperwood',     name: 'Whisperwood',                x: 287, y: 450, type: 'wilderness' },
+  { id: 'aethra_ruins',    name: 'Aethra Ruins',               x: 193, y: 250, type: 'ruins'      },
+  { id: 'iron_gate',       name: 'Iron Gate',                  x: 162, y: 387, type: 'dungeon'    },
+  { id: 'high_moors',      name: 'High Moors',                 x: 187, y: 100, type: 'wilderness' },
+  { id: 'bren_monastery',  name: 'Bren Monastery',             x: 481, y: 162, type: 'landmark'   },
+  { id: 'redgate',         name: 'Redgate',                    x: 250, y: 125, type: 'village'    },
+  { id: 'millhaven',       name: 'Millhaven',                  x: 456, y: 368, type: 'village'    },
+  { id: 'hearthwick',      name: 'Hearthwick',                 x: 362, y: 481, type: 'hamlet'     },
+  { id: 'resonance_nexus', name: 'Resonance Nexus',            x: 362, y: 237, type: 'special'    },
+  { id: 'hermits_tower',   name: "Hermit's Tower",             x: 268, y: 537, type: 'ruins'      },
+  { id: 'sunken_temple',   name: 'Sunken Temple',              x: 650, y: 462, type: 'dungeon'    },
+  { id: 'shattered_spire', name: 'Shattered Spire',            x: 143, y: 131, type: 'ruins'      },
+  { id: 'gray_gardens',    name: 'The Gray Gardens',           x: 256, y: 493, type: 'ruins'      },
+  { id: 'hollow_keep',     name: 'Hollow Keep',                x: 437, y: 518, type: 'dungeon'    },
+  { id: 'engine_chamber',  name: 'Engine Chamber',             x: 506, y: 281, type: 'special',   underground: true },
+  { id: 'under_streets',   name: 'Under-Streets',              x: 500, y: 285, type: 'dungeon',   underground: true },
 ];
 
 const ROADS = [
@@ -45,17 +46,17 @@ const ROADS = [
   ['valdenmoor',     'hollow_keep'],
 ];
 
-// Type → icon shape config
+// Type → icon shape config (sizes scaled up for legibility)
 const TYPE_CONFIG = {
-  city:       { size: 12, color: '#e8c87a', symbol: '◆',   label: 'City'       },
-  town:       { size: 9,  color: '#c9a96e', symbol: '◆',   label: 'Town'       },
-  village:    { size: 7,  color: '#8fc47a', symbol: '●',   label: 'Village'    },
-  hamlet:     { size: 5,  color: '#6a8a5a', symbol: '●',   label: 'Hamlet'     },
-  landmark:   { size: 8,  color: '#d4c4a0', symbol: '▲',   label: 'Landmark'   },
-  ruins:      { size: 7,  color: '#9b72cf', symbol: '◪',   label: 'Ruins'      },
-  dungeon:    { size: 7,  color: '#c94a4a', symbol: '▼',   label: 'Dungeon'    },
-  wilderness: { size: 8,  color: '#4caf7a', symbol: '⬟',   label: 'Wilderness' },
-  special:    { size: 7,  color: '#5a9fd4', symbol: '★',   label: 'Special'    },
+  city:       { size: 15, color: '#e8c87a', symbol: '◆',   label: 'City'       },
+  town:       { size: 11, color: '#c9a96e', symbol: '◆',   label: 'Town'       },
+  village:    { size: 9,  color: '#8fc47a', symbol: '●',   label: 'Village'    },
+  hamlet:     { size: 7,  color: '#6a8a5a', symbol: '●',   label: 'Hamlet'     },
+  landmark:   { size: 10, color: '#d4c4a0', symbol: '▲',   label: 'Landmark'   },
+  ruins:      { size: 9,  color: '#9b72cf', symbol: '◪',   label: 'Ruins'      },
+  dungeon:    { size: 9,  color: '#c94a4a', symbol: '▼',   label: 'Dungeon'    },
+  wilderness: { size: 10, color: '#4caf7a', symbol: '⬟',   label: 'Wilderness' },
+  special:    { size: 9,  color: '#5a9fd4', symbol: '★',   label: 'Special'    },
 };
 
 // ─── WorldMap Component ───────────────────────────────────────────────────────
@@ -169,8 +170,8 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
 
       return (
         <g key={loc.id}>
-          <circle cx={loc.x} cy={loc.y} r={4} fill="rgba(80,70,60,0.4)" stroke="rgba(80,70,60,0.2)" strokeWidth="1"/>
-          <text x={loc.x} y={loc.y + 1} textAnchor="middle" dominantBaseline="middle" fill="rgba(80,70,60,0.5)" fontSize="5">?</text>
+          <circle cx={loc.x} cy={loc.y} r={5} fill="rgba(80,70,60,0.4)" stroke="rgba(80,70,60,0.2)" strokeWidth="1"/>
+          <text x={loc.x} y={loc.y + 1} textAnchor="middle" dominantBaseline="middle" fill="rgba(80,70,60,0.5)" fontSize="7">?</text>
         </g>
       );
     }
@@ -203,15 +204,15 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
         />
         {/* Waypoint star */}
         {isWaypt && (
-          <text x={loc.x} y={loc.y - nodeSize - 3}
-            textAnchor="middle" fontSize="7" fill="#c9a96e" opacity="0.9">★</text>
+          <text x={loc.x} y={loc.y - nodeSize - 4}
+            textAnchor="middle" fontSize="9" fill="#c9a96e" opacity="0.9">★</text>
         )}
         {/* Location name */}
         <text
           x={loc.x}
-          y={loc.y + nodeSize + 9}
+          y={loc.y + nodeSize + 12}
           textAnchor="middle"
-          fontSize={isHere ? 7.5 : 6.5}
+          fontSize={isHere ? 10 : 9}
           fill={isHere ? '#e8c87a' : isHov ? '#d4c4a0' : '#8a7a6a'}
           fontFamily="Georgia, serif"
         >
@@ -235,7 +236,7 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
       <div style={{
         background: 'radial-gradient(ellipse at 30% 20%, #0d0a18 0%, #06050a 100%)',
         border: '1px solid rgba(201,169,110,0.35)',
-        maxWidth: '680px', width: '100%',
+        maxWidth: '920px', width: '100%',
         padding: '1rem',
         fontFamily: 'Georgia, serif',
         position: 'relative',
@@ -273,7 +274,7 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
         <div style={{ position: 'relative' }}>
           <svg
             width="100%"
-            viewBox="0 0 640 480"
+            viewBox="0 0 800 600"
             style={{ display: 'block', background: 'radial-gradient(ellipse at 50% 50%, #0a0814 0%, #060508 100%)' }}
             xmlns="http://www.w3.org/2000/svg"
           >
@@ -286,11 +287,11 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
             </defs>
 
             {/* Subtle grid / parchment texture */}
-            {Array.from({length:13},(_,i)=>(
-              <line key={`gh${i}`} x1="0" y1={i*40} x2="640" y2={i*40} stroke="rgba(201,169,110,0.03)" strokeWidth="0.5"/>
+            {Array.from({length:16},(_,i)=>(
+              <line key={`gh${i}`} x1="0" y1={i*40} x2="800" y2={i*40} stroke="rgba(201,169,110,0.03)" strokeWidth="0.5"/>
             ))}
-            {Array.from({length:17},(_,i)=>(
-              <line key={`gv${i}`} x1={i*40} y1="0" x2={i*40} y2="480" stroke="rgba(201,169,110,0.03)" strokeWidth="0.5"/>
+            {Array.from({length:21},(_,i)=>(
+              <line key={`gv${i}`} x1={i*40} y1="0" x2={i*40} y2="600" stroke="rgba(201,169,110,0.03)" strokeWidth="0.5"/>
             ))}
 
             {/* Roads */}
@@ -300,10 +301,10 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
             {visibleLocations.map(loc => renderLocation(loc))}
 
             {/* Fog vignette */}
-            <rect width="640" height="480" fill="url(#fogGrad)" pointerEvents="none"/>
+            <rect width="800" height="600" fill="url(#fogGrad)" pointerEvents="none"/>
 
             {/* Compass rose (top right) */}
-            <g transform="translate(600, 35)">
+            <g transform="translate(760, 40)">
               <circle cx="0" cy="0" r="14" fill="none" stroke="rgba(201,169,110,0.2)" strokeWidth="1"/>
               <text x="0" y="-8" textAnchor="middle" fontSize="7" fill="rgba(201,169,110,0.5)" fontFamily="Georgia, serif">N</text>
               <line x1="0" y1="-5" x2="0" y2="-12" stroke="rgba(201,169,110,0.4)" strokeWidth="1"/>
@@ -317,8 +318,8 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
           {hoveredLoc && knownLocations.has(hoveredLoc.id) && (
             <div style={{
               position: 'absolute',
-              left: `${(hoveredLoc.x / 640) * 100}%`,
-              top:  `${(hoveredLoc.y / 480) * 100 - 12}%`,
+              left: `${(hoveredLoc.x / 800) * 100}%`,
+              top:  `${(hoveredLoc.y / 600) * 100 - 12}%`,
               transform: 'translate(-50%, -100%)',
               background: 'rgba(6,5,10,0.95)',
               border: '1px solid rgba(201,169,110,0.4)',

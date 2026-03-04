@@ -243,7 +243,7 @@ app.post('/api/fast-travel', auth, async (req, res) => {
     // Random encounter during travel
     const fromLoc = MAP_DATA.locations.find(l => l.id === fromLocation);
     const toLoc   = MAP_DATA.locations.find(l => l.id === toLocation);
-    const travelPrompt = `[FAST TRAVEL ENCOUNTER] ${character.name} is traveling from ${fromLoc?.name || fromLocation} to ${toLoc?.name || toLocation} along the road. They are partway through the journey when something interrupts their travel. Generate a meaningful random encounter appropriate to the terrain and character level ${character.level}. This could be: bandits, a traveler in need, a strange phenomenon, an unusual creature, an abandoned scene with clues. The encounter should fit the world's tone. End the scene with the character near ${toLoc?.name || toLocation} — they will arrive but must deal with this first. Include stateChanges as appropriate. Give 4 options for how to handle it.`;
+    const travelPrompt = `[FAST TRAVEL ENCOUNTER] ${character.name} is traveling from ${fromLoc?.name || fromLocation} to ${toLoc?.name || toLocation} along the road. They are partway through the journey when something interrupts their travel. Generate a meaningful random encounter appropriate to the terrain and character level ${character.level}. This could be: bandits, a traveler in need, a strange phenomenon, an unusual creature, an abandoned scene with clues. The encounter should fit the world's tone. End the scene with the character near ${toLoc?.name || toLocation} — they will arrive but must deal with this first. Include stateChanges as appropriate. Keep it to 2-3 short paragraphs.`;
 
     try {
       const systemPrompt = buildSystemPrompt(character, {});
@@ -511,7 +511,6 @@ RESPONSE SCHEMA:
       "flags": {}
     }
   ],
-  "options": ["Option A","Option B","Option C","Option D"],
   "mood": "tense|calm|mysterious|combat|discovery|social"
 }`;
 }
