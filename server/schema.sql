@@ -48,6 +48,17 @@ CREATE TABLE IF NOT EXISTS game_events (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Global image cache: generated once, reused by all players
+CREATE TABLE IF NOT EXISTS images (
+  id          SERIAL PRIMARY KEY,
+  entity_type TEXT NOT NULL,   -- 'scene', 'npc', 'item'
+  entity_id   TEXT NOT NULL,   -- scene prompt slug, npc id, item slug
+  prompt      TEXT NOT NULL,   -- full prompt used for generation
+  image_data  TEXT NOT NULL,   -- base64-encoded PNG from Imagen 3
+  created_at  TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(entity_type, entity_id)
+);
+
 -- Insert your admin account (change username/password before running)
 -- Password here is "changeme" — update immediately after first login
 INSERT INTO users (username, password, is_admin)

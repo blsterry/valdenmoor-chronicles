@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sendToGM, loadSave, writeSave, deleteSave, logout,
-         loadNpcStates, updateNpcStates, fastTravel, logEvents } from './api.js';
+         loadNpcStates, updateNpcStates, fastTravel, logEvents, getImage } from './api.js';
 import WorldMap from './WorldMap.jsx';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -91,6 +91,10 @@ function needsLabel(hunger, thirst, fatigue) {
   if (t >= 25) parts.push(t < 50 ? 'thirsty' : t < 75 ? 'parched'  : '⚠ desperate for water');
   if (f >= 25) parts.push(f < 50 ? 'tired'   : f < 75 ? 'exhausted': '⚠ near collapse');
   return parts.join(' · ') || null;
+}
+
+function slugifyPrompt(p) {
+  return (p || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 60);
 }
 
 const INITIAL_CHARACTER = {
@@ -456,6 +460,9 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [tempGender, setTempGender]       = useState('they');
   const [tempBackstory, setTempBackstory] = useState('');
   const [tempQuestType, setTempQuestType] = useState('');
+  const [sceneImages, setSceneImages]   = useState({});   // { sceneKey: base64png }
+  const [npcPortraits, setNpcPortraits] = useState({});   // { npcId: base64png }
+  const imageGenerating                 = useRef(new Set());
   const logEndRef = useRef(null);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
@@ -477,6 +484,10 @@ export default function Game({ user, onLogout, onAdmin }) {
         setOptions(saved.options || []);
         setCurrentScene(saved.scene || null);
         setScreen('game');
+        // Pre-fetch current scene image
+        if (saved.scene) fetchSceneImage(saved.scene, slugifyPrompt(saved.scene));
+        // Pre-fetch portraits for all known NPCs
+        Object.keys(npcData || {}).forEach(npcId => fetchNpcPortrait(npcId));
       } else {
         setScreen('intro');
       }
@@ -484,7 +495,27 @@ export default function Game({ user, onLogout, onAdmin }) {
       console.error(err);
       onLogout();
     });
-  }, [onLogout]);
+  }, [onLogout, fetchSceneImage, fetchNpcPortrait]);
+
+  const fetchSceneImage = useCallback((scenePrompt, sceneKey) => {
+    if (!scenePrompt || !sceneKey) return;
+    const tag = `scene:${sceneKey}`;
+    if (imageGenerating.current.has(tag)) return;
+    imageGenerating.current.add(tag);
+    getImage('scene', sceneKey, scenePrompt)
+      .then(data => { if (data) setSceneImages(prev => ({ ...prev, [sceneKey]: data })); })
+      .finally(() => imageGenerating.current.delete(tag));
+  }, []);
+
+  const fetchNpcPortrait = useCallback((npcId) => {
+    if (!npcId) return;
+    const tag = `npc:${npcId}`;
+    if (imageGenerating.current.has(tag)) return;
+    imageGenerating.current.add(tag);
+    getImage('npc', npcId, '')
+      .then(data => { if (data) setNpcPortraits(prev => ({ ...prev, [npcId]: data })); })
+      .finally(() => imageGenerating.current.delete(tag));
+  }, []);
 
   const persistSave = useCallback(async (char, msgs, dlog, m, opts, scene) => {
     try {
@@ -563,7 +594,12 @@ export default function Game({ user, onLogout, onAdmin }) {
       const newMood    = parsed.mood || 'mysterious';
       const newOptions = parsed.options || [];
       const newScene   = parsed.scenePrompt || null;
-      const gmEntry    = { type: 'gm', text: parsed.narrative, scenePrompt: newScene, mood: newMood };
+      const npcIds     = (parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
+      const gmEntry    = { type: 'gm', text: parsed.narrative, scenePrompt: newScene, mood: newMood, npcIds };
+
+      // Fire-and-forget image generation
+      if (newScene) fetchSceneImage(newScene, slugifyPrompt(newScene));
+      npcIds.forEach(id => fetchNpcPortrait(id));
 
       setMessages(newApiHistory);
       setDisplayLog(prev => {
@@ -583,7 +619,7 @@ export default function Game({ user, onLogout, onAdmin }) {
       setDisplayLog(prev => [...prev, errEntry]);
     }
     setLoading(false);
-  }, [persistSave, showNotif, onLogout, npcStates]);
+  }, [persistSave, showNotif, onLogout, npcStates, fetchSceneImage, fetchNpcPortrait]);
 
   const handleSend = useCallback((text) => {
     if (!text?.trim() || loading || !character) return;
@@ -604,8 +640,12 @@ export default function Game({ user, onLogout, onAdmin }) {
         // Encounter: treat as a full GM response
         const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(character, result.parsed.stateChanges);
 
+        const encScene    = result.parsed.scenePrompt || null;
+        const encNpcIds   = (result.parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
         const travelEntry = { type: 'player', text: `[Fast travel from ${fromLoc.replace(/_/g,' ')} to ${toLoc.replace(/_/g,' ')}]`, hidden: true };
-        const gmEntry     = { type: 'gm', text: result.parsed.narrative, scenePrompt: result.parsed.scenePrompt, mood: result.parsed.mood || 'tense' };
+        const gmEntry     = { type: 'gm', text: result.parsed.narrative, scenePrompt: encScene, mood: result.parsed.mood || 'tense', npcIds: encNpcIds };
+        if (encScene) fetchSceneImage(encScene, slugifyPrompt(encScene));
+        encNpcIds.forEach(id => fetchNpcPortrait(id));
         const newMood     = result.parsed.mood || 'tense';
         const newOptions  = result.parsed.options || [];
         const newScene    = result.parsed.scenePrompt || null;
@@ -659,7 +699,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     }
 
     setLoading(false);
-  }, [character, loading, messages, persistSave, callGM, showNotif]);
+  }, [character, loading, messages, persistSave, callGM, showNotif, fetchSceneImage, fetchNpcPortrait]);
 
   const handleSetWaypointFromMap = useCallback((locationId) => {
     if (!character) return;
@@ -1174,7 +1214,22 @@ export default function Game({ user, onLogout, onAdmin }) {
             const entryTheme = MOOD_THEMES[entry.mood] || MOOD_THEMES.mysterious;
             return (
               <div key={i} style={{marginBottom:'0.5rem'}}>
-                {entry.scenePrompt&&<div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>}
+                {entry.scenePrompt && (() => {
+                  const imgKey = slugifyPrompt(entry.scenePrompt);
+                  return sceneImages[imgKey]
+                    ? <img src={`data:image/png;base64,${sceneImages[imgKey]}`} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'240px',objectFit:'cover',borderBottom:`1px solid ${entryTheme.accent}33`}}/>
+                    : <div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>;
+                })()}
+                {entry.npcIds?.length > 0 && entry.npcIds.some(id => npcPortraits[id]) && (
+                  <div style={{display:'flex',gap:'0.4rem',padding:'0.35rem 0.6rem',background:'rgba(0,0,0,0.3)',flexWrap:'wrap',alignItems:'flex-end'}}>
+                    {entry.npcIds.filter(id => npcPortraits[id]).map(id => (
+                      <div key={id} style={{textAlign:'center'}}>
+                        <img src={`data:image/png;base64,${npcPortraits[id]}`} alt={id} style={{width:'52px',height:'52px',objectFit:'cover',border:`1px solid ${entryTheme.accent}44`,display:'block'}}/>
+                        <div style={{color:'#6a5a4a',fontSize:'0.58rem',marginTop:'0.1rem'}}>{id.replace(/_/g,' ')}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <div style={{padding:'1rem 1rem 0.75rem',background:pal.logEntryBg,borderLeft:`2px solid ${entryTheme.accent}33`}}>
                   <div style={{lineHeight:'1.95',fontSize:'0.92rem',color:pal.textMain,whiteSpace:'pre-wrap'}}>{entry.text}</div>
                 </div>

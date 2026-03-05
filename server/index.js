@@ -350,6 +350,75 @@ app.post('/api/fast-travel', auth, async (req, res) => {
   }
 });
 
+// ─── Image Generation ─────────────────────────────────────────────────────────
+// Generates images via Google Imagen 3 and caches them globally in the DB.
+// Images are entity-scoped (scene/npc/item) and shared across all users.
+
+const IMAGE_STYLE = 'Dark medieval fantasy, painterly oil painting, atmospheric lighting, muted earth tones with warm candlelight or cold moonlight, cinematic composition, highly detailed. No text, no watermarks, no borders, no frames.';
+
+app.post('/api/image', auth, async (req, res) => {
+  const { entityType, entityId, prompt } = req.body;
+  if (!entityType || !entityId) return res.status(400).json({ error: 'entityType and entityId required' });
+  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'Image generation not configured' });
+
+  // Return cached image if available
+  const { rows } = await pool.query(
+    'SELECT image_data FROM images WHERE entity_type=$1 AND entity_id=$2',
+    [entityType, entityId]
+  );
+  if (rows.length > 0) return res.json({ imageData: rows[0].image_data, cached: true });
+
+  // Build prompt
+  let fullPrompt;
+  const aspectRatio = entityType === 'npc' ? '1:1' : '16:9';
+
+  if (entityType === 'npc') {
+    const npc = NPC_CATALOG.find(n => n.id === entityId);
+    if (!npc) return res.status(404).json({ error: 'NPC not found' });
+    fullPrompt = `${IMAGE_STYLE} Character portrait, upper body. ${npc.name}, ${npc.role}. ${npc.physicalDescription} Facing viewer, expressive, medieval costume.`;
+  } else if (entityType === 'scene') {
+    fullPrompt = `${IMAGE_STYLE} ${prompt}`;
+  } else {
+    fullPrompt = `${IMAGE_STYLE} ${prompt}`;
+  }
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          instances: [{ prompt: fullPrompt }],
+          parameters: { sampleCount: 1, aspectRatio },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('Imagen error:', err);
+      return res.status(502).json({ error: 'Image generation failed' });
+    }
+
+    const data = await response.json();
+    const imageData = data.predictions?.[0]?.bytesBase64Encoded;
+    if (!imageData) return res.status(502).json({ error: 'No image in response' });
+
+    // Cache globally
+    await pool.query(
+      `INSERT INTO images (entity_type, entity_id, prompt, image_data)
+       VALUES ($1,$2,$3,$4) ON CONFLICT (entity_type, entity_id) DO NOTHING`,
+      [entityType, entityId, fullPrompt, imageData]
+    );
+
+    res.json({ imageData, cached: false });
+  } catch (err) {
+    console.error('Image generation error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // ─── GM proxy ─────────────────────────────────────────────────────────────────
 // Keeps the Anthropic API key on the server, never in the browser.
 
@@ -454,6 +523,17 @@ async function runMigrations() {
         description TEXT NOT NULL,
         flags       JSONB DEFAULT '{}',
         created_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS images (
+        id          SERIAL PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        entity_id   TEXT NOT NULL,
+        prompt      TEXT NOT NULL,
+        image_data  TEXT NOT NULL,
+        created_at  TIMESTAMPTZ DEFAULT NOW(),
+        UNIQUE(entity_type, entity_id)
       );
     `);
     console.log('Migrations OK');
