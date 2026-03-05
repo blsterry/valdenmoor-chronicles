@@ -607,8 +607,15 @@ Keep narrative to 2-3 SHORT paragraphs. Say the thing. Trust the world to do the
 COMBAT & LEVELING:
 - Combat: ~40% chance of minor injury in a fair fight.
 - XP for combat: base by enemy difficulty. DIMINISHING RETURNS on same enemy type (50% second fight, 25% third+). Track via grind_[enemytype] flags.
-- XP for story/exploration/quests: always full value.
-- Award XP for: quests, meaningful exploration, clever problem solving, social achievements, first-time discoveries.
+  Weak enemy (bandit, wolf): 10-20 XP. Moderate (soldier, dire beast): 25-50 XP. Dangerous (knight, monster): 60-100 XP.
+- Award XP ONLY for genuine achievement:
+  ✓ Completing a quest or significant task: 50-150 XP
+  ✓ Winning or surviving meaningful combat: see above
+  ✓ Solving an actual puzzle or mystery (not just noticing one): 20-60 XP
+  ✓ Major social victory (persuading someone important, gaining real trust): 15-40 XP
+  ✓ First arrival at a significant new location (city, major ruin, dungeon — not a road or shrine): 10-25 XP
+- DO NOT award XP for: looking around, reading a notice board, examining objects, casual conversation, asking questions, walking to a new area within the same location, resting, or any routine action. Observation is not achievement.
+- When in doubt, give NO XP. XP should feel earned, not automatic. A full session of exploration might yield 20-30 XP total.
 
 FREE-FORM ACTIONS — CRITICAL:
 Players may type ANYTHING. Honor all reasonable player actions:
