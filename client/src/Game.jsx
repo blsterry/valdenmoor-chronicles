@@ -5,6 +5,51 @@ import WorldMap from './WorldMap.jsx';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
+const QUEST_TYPE_OPTIONS = [
+  {
+    id: 'missing',
+    title: 'Someone Is Missing',
+    description: "A person you care about passed through this region and never came back. You have a name and a last known location.",
+    gmHint: 'The player is searching for a specific missing person (let them name the person in play or let it emerge). NPCs should have conflicting information about what happened. The mystery deepens before it resolves — and the answer may be uncomfortable.',
+  },
+  {
+    id: 'debt',
+    title: 'Unfinished Business',
+    description: "Someone wronged you badly enough that you followed them here. Whether you want justice, coin, or something else is still unclear.",
+    gmHint: 'The player carries a specific grudge or unresolved wrong. The target may be someone in or near Valdenmoor. Introduce moral complexity — the target may not be purely villainous, and revenge may cost more than expected.',
+  },
+  {
+    id: 'scholar',
+    title: 'The Old World',
+    description: "You study the Aethran age — the lost civilization whose ruins still mark this land. Something here called you specifically.",
+    gmHint: 'The player is drawn to Aethran lore and ruins. Lean into Resonance mechanics, ancient inscriptions, and artifacts. Archivist Nessa, Historian Brek, and the Hermit have more to offer this player. The Engine Chamber and Aethra Ruins are primary draws.',
+  },
+  {
+    id: 'survival',
+    title: 'Making Do',
+    description: "No grand purpose. You needed coin and this road looked better than the last one. The work finds you.",
+    gmHint: 'The player is pragmatic and survival-focused, drawn into events by circumstance. Lean into economic pressure, mercenary work, and moral grey areas. The world has weight and consequence rather than heroic destiny. Money matters more here.',
+  },
+  {
+    id: 'hunted',
+    title: 'Running From Something',
+    description: "You are not here entirely by choice. Something behind you made the road ahead feel safer — for now.",
+    gmHint: 'Something pursues the player — a faction, a person, a secret, or something stranger. Introduce signs slowly: a stranger asking questions, a letter left at an inn, someone who looks twice. The threat should feel real but not constant.',
+  },
+  {
+    id: 'wrong',
+    title: 'Something Is Wrong Here',
+    description: "The Forgetting. The failing harvests. The things locals won't speak of. You noticed, and you stayed.",
+    gmHint: 'The player is an investigator drawn to the central mystery of the Forgetting — the illness erasing memory and the strange resonance events. Reward careful observation and lateral thinking. NPCs with the Forgetting are more prominent, and clues accumulate slowly.',
+  },
+  {
+    id: 'faithful',
+    title: 'A Calling',
+    description: "Faith, duty, or something harder to name drew you here. A vision. An obligation. A pull you have not been able to explain.",
+    gmHint: 'The player has a spiritual or duty-driven purpose. Lean into the Church of the Still Flame, omens, and moral questions. The Bren Monastery and roadside shrines resonate more. Sister Veil and High Keeper Aldara have things to tell this player.',
+  },
+];
+
 const BACKSTORY_OPTIONS = [
   "Searching for someone — they passed through here and haven't been heard from since.",
   "Word reached you of strange work and stranger coin near Valdenmoor.",
@@ -63,6 +108,7 @@ const INITIAL_CHARACTER = {
   npcRelations: {},
   flags: {},
   dayCount: 1,
+  questType: '',    // id from QUEST_TYPE_OPTIONS
   gameMinutes: 0,   // total elapsed game minutes (0 = Day 1, 18:00)
   hunger: 0,        // 0-100; natural rate +2/hr
   thirst: 0,        // 0-100; natural rate +4/hr
@@ -409,6 +455,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
   const [tempGender, setTempGender]       = useState('they');
   const [tempBackstory, setTempBackstory] = useState('');
+  const [tempQuestType, setTempQuestType] = useState('');
   const logEndRef = useRef(null);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
@@ -634,6 +681,12 @@ export default function Game({ user, onLogout, onAdmin }) {
   const handleBackstorySubmit = (backstory) => {
     setStatAlloc(prev => ({ ...prev, backstory: backstory || '' }));
     setTempBackstory('');
+    setScreen('questType');
+  };
+
+  const handleQuestTypeSubmit = (qtId) => {
+    setStatAlloc(prev => ({ ...prev, questType: qtId || '' }));
+    setTempQuestType('');
     setScreen('statAlloc');
   };
 
@@ -662,7 +715,9 @@ export default function Game({ user, onLogout, onAdmin }) {
     setScreen('game');
     const pronounRef = char.gender === 'she' ? 'she/her' : char.gender === 'he' ? 'he/him' : 'they/them';
     const backstoryCtx = char.backstory ? ` Reason for being at the crossroads: "${char.backstory}".` : '';
-    const intro = `[GAME START] Character: ${char.name} (${pronounRef}), classless Human. Stats: ${JSON.stringify(char.stats)}.${backstoryCtx} Open with a direct, grounded scene at the crossroads at dusk. The character has just arrived on foot. They are OUTSIDE — they can see the inn's warm light, smell woodsmoke and damp earth, hear muffled noise from inside the inn but make out no words. Describe the crossroads, the shrine, the noticeboard, the road. Do not describe anything inside the inn or quote conversations they cannot hear. Keep it to 2-3 short paragraphs.`;
+    const qtData = QUEST_TYPE_OPTIONS.find(q => q.id === char.questType);
+    const questCtx = qtData ? ` PLAYER DRIVE — ${qtData.title}: ${qtData.gmHint}` : '';
+    const intro = `[GAME START] Character: ${char.name} (${pronounRef}), classless Human. Stats: ${JSON.stringify(char.stats)}.${backstoryCtx}${questCtx} Open with a direct, grounded scene at the crossroads at dusk. The character has just arrived on foot. They are OUTSIDE — they can see the inn's warm light, smell woodsmoke and damp earth, hear muffled noise from inside the inn but make out no words. Describe the crossroads, the shrine, the noticeboard, the road. Do not describe anything inside the inn or quote conversations they cannot hear. Keep it to 2-3 short paragraphs.`;
     callGM(char, [], intro, true);
   };
 
@@ -764,6 +819,37 @@ export default function Game({ user, onLogout, onAdmin }) {
         <button onClick={()=>handleBackstorySubmit('')}
           style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif'}}>
           Skip
+        </button>
+      </div>
+    </div>
+  );
+
+  // ─── Quest Type ────────────────────────────────────────────────────────────
+
+  if (screen === 'questType') return (
+    <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
+      <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'0.5rem'}}>WHAT DRIVES YOU?</div>
+      <div style={{color:'#3a2a1a',fontSize:'0.68rem',marginBottom:'1.5rem'}}>This shapes what the world puts in your path.</div>
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'0.5rem',width:'100%',maxWidth:'560px',marginBottom:'1.5rem'}}>
+        {QUEST_TYPE_OPTIONS.map(qt => {
+          const selected = tempQuestType === qt.id;
+          return (
+            <button key={qt.id} onClick={()=>setTempQuestType(selected ? '' : qt.id)}
+              style={{background:selected?'rgba(201,169,110,0.12)':'transparent',border:`1px solid ${selected?'#c9a96e':'rgba(201,169,110,0.2)'}`,color:selected?'#e8c87a':'#8a7a6a',padding:'0.65rem 0.85rem',cursor:'pointer',fontFamily:'Georgia, serif',textAlign:'left',lineHeight:'1.4',transition:'all 0.15s'}}>
+              <div style={{fontSize:'0.82rem',marginBottom:'0.2rem',color:selected?'#e8c87a':'#c9a96e'}}>{qt.title}</div>
+              <div style={{fontSize:'0.72rem',color:selected?'#a08060':'#5a4a3a'}}>{qt.description}</div>
+            </button>
+          );
+        })}
+      </div>
+      <div style={{display:'flex',gap:'0.75rem'}}>
+        <button onClick={()=>handleQuestTypeSubmit(tempQuestType)}
+          style={{background:tempQuestType?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${tempQuestType?'rgba(201,169,110,0.7)':'rgba(201,169,110,0.3)'}`,color:tempQuestType?'#c9a96e':'#6a5a4a',padding:'0.6rem 2rem',fontSize:'0.85rem',cursor:'pointer',fontFamily:'Georgia, serif',letterSpacing:'0.1em'}}>
+          Continue →
+        </button>
+        <button onClick={()=>handleQuestTypeSubmit('')}
+          style={{background:'transparent',border:'none',color:'#3a2a1a',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif'}}>
+          No strong pull
         </button>
       </div>
     </div>

@@ -7,7 +7,7 @@ import fetch from 'node-fetch';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pool from './db.js';
-import { MAP_DATA, NPC_CATALOG, SKILL_CATALOG, EXPANDED_LORE, mapDistance } from './lore.js';
+import { MAP_DATA, NPC_CATALOG, SKILL_CATALOG, EXPANDED_LORE, QUEST_TYPE_CATALOG, mapDistance } from './lore.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -582,6 +582,7 @@ ${EXPANDED_LORE}
 CURRENT CHARACTER:
 ${JSON.stringify(character, null, 2)}
 
+${character.questType && QUEST_TYPE_CATALOG[character.questType] ? QUEST_TYPE_CATALOG[character.questType] + '\n' : ''}
 ${timeSection}
 
 ${npcSection}

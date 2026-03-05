@@ -1502,3 +1502,16 @@ Players with Trade skill can negotiate discounts: Tier 1 = 5% off, Tier 2 = 10%,
 Merchants with slamsShut relationship breached: refuse to sell. Period.
 Use removeInventory from merchant stock after purchase when tracking makes sense (scarce items).
 `;
+
+// ─── QUEST TYPE CATALOG ────────────────────────────────────────────────────────
+// Player selects one of these at character creation. Shapes what the world puts in their path.
+
+export const QUEST_TYPE_CATALOG = {
+  missing:  'PLAYER DRIVE — Someone Is Missing: The player is searching for a specific missing person (let them name them in play or let it emerge). NPCs should have conflicting information. The mystery deepens before it resolves — and the answer may be uncomfortable.',
+  debt:     'PLAYER DRIVE — Unfinished Business: The player carries a specific grudge or unresolved wrong. The target may be someone in or near Valdenmoor. Introduce moral complexity — the target may not be purely villainous, and resolution may cost more than expected.',
+  scholar:  'PLAYER DRIVE — The Old World: The player is drawn to Aethran lore and ruins. Lean into Resonance mechanics, ancient inscriptions, and artifacts. Archivist Nessa, Historian Brek, and the Hermit have more to offer. The Engine Chamber and Aethra Ruins are primary draws.',
+  survival: 'PLAYER DRIVE — Making Do: The player is pragmatic and survival-focused, drawn into events by circumstance. Lean into economic pressure, mercenary work, and moral grey areas. Money matters more here. Heroic destiny is not on the table.',
+  hunted:   'PLAYER DRIVE — Running From Something: Something pursues the player — a faction, person, secret, or something stranger. Introduce signs slowly: a stranger asking questions, a letter left at an inn, someone who looks twice. The threat is real but not constant.',
+  wrong:    'PLAYER DRIVE — Something Is Wrong Here: The player is an investigator drawn to the Forgetting and the resonance events. Reward careful observation and lateral thinking. NPCs with the Forgetting are more prominent, and clues accumulate slowly.',
+  faithful: 'PLAYER DRIVE — A Calling: The player has a spiritual or duty-driven purpose. Lean into the Church of the Still Flame, omens, and moral questions. The Bren Monastery and roadside shrines resonate more. Sister Veil and High Keeper Aldara have things to tell this player.',
+};

@@ -256,17 +256,17 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
         </div>
 
         {/* Legend */}
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '0.5rem', borderBottom: '1px solid rgba(201,169,110,0.1)', paddingBottom: '0.4rem' }}>
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.6rem', borderBottom: '1px solid rgba(201,169,110,0.1)', paddingBottom: '0.5rem' }}>
           {[['city/town','◆','#e8c87a'],['village','●','#8fc47a'],['landmark','▲','#d4c4a0'],['ruins','◪','#9b72cf'],['dungeon','▼','#c94a4a'],['wilderness','⬟','#4caf7a'],['special','★','#5a9fd4']].map(([label, sym, color]) => (
-            <span key={label} style={{ fontSize: '0.6rem', color: '#6a5a4a' }}>
-              <span style={{ color }}>{sym}</span> {label}
+            <span key={label} style={{ fontSize: '0.78rem', color: '#6a5a4a' }}>
+              <span style={{ color, fontSize: '0.9rem' }}>{sym}</span> {label}
             </span>
           ))}
-          <span style={{ fontSize: '0.6rem', color: '#6a5a4a' }}>
-            <span style={{ color: '#c9a96e' }}>★</span> waypoint
+          <span style={{ fontSize: '0.78rem', color: '#6a5a4a' }}>
+            <span style={{ color: '#c9a96e', fontSize: '0.9rem' }}>★</span> waypoint
           </span>
-          <span style={{ fontSize: '0.6rem', color: '#6a5a4a' }}>
-            <span style={{ color: '#4a3a2a' }}>?</span> unexplored road
+          <span style={{ fontSize: '0.78rem', color: '#6a5a4a' }}>
+            <span style={{ color: '#5a4a3a', fontSize: '0.9rem' }}>?</span> unexplored
           </span>
         </div>
 
