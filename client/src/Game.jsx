@@ -51,10 +51,10 @@ const QUEST_TYPE_OPTIONS = [
 ];
 
 const BACKSTORY_OPTIONS = [
-  "Searching for someone — they passed through here and haven't been heard from since.",
-  "Word reached you of strange work and stranger coin near Valdenmoor.",
-  "A traveling trader. That's what you tell people, at least.",
-  "The road looked better than whatever you were leaving behind.",
+  "Years in service — soldier, guard, hired sword. The work dried up.",
+  "You grew up in a city like Valdenmoor once was. You know what it looks like when things start to slip.",
+  "No fixed home. The road has been your address longer than anywhere else.",
+  "There was somewhere you belonged. Not anymore.",
 ];
 
 // Game starts at 18:00 (dusk) on Day 1. Offset = 1080 min from midnight.
@@ -752,8 +752,7 @@ export default function Game({ user, onLogout, onAdmin }) {
       <div style={{letterSpacing:'0.35em',fontSize:'0.75rem',color:'#6a5a4a',marginBottom:'2rem'}}>CHRONICLES</div>
       <div style={{width:'60px',height:'1px',background:'#c9a96e',opacity:0.4,marginBottom:'2rem'}}/>
       <p style={{maxWidth:'420px',lineHeight:'1.9',color:'#8a7a6a',marginBottom:'2.5rem',fontSize:'0.9rem'}}>
-        People have been forgetting. Not small things — names, faces, whole years. It started in the city and spread outward. No one knows why.
-        You are not from here. But the road brought you to the crossroads, and the crossroads has a way of keeping people.
+        An old kingdom. Unfinished roads. People holding on to things the land seems intent on taking. You came here for your own reasons — and the crossroads, as it always has, does not care what brought you. Only what you do now that you've arrived.
       </p>
       <button onClick={() => setScreen('name')}
         style={{background:'transparent',border:'2px solid #c9a96e66',color:'#c9a96e',padding:'0.7rem 2.5rem',fontSize:'0.85rem',letterSpacing:'0.15em',cursor:'pointer',fontFamily:'Georgia, serif',transition:'all 0.25s'}}
@@ -797,7 +796,7 @@ export default function Game({ user, onLogout, onAdmin }) {
 
   if (screen === 'backstory') return (
     <div style={{background:'radial-gradient(ellipse at 30% 20%, #1a0e2e 0%, #08050f 100%)',color:'#c9a96e',minHeight:'100vh',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',fontFamily:'Georgia, serif',padding:'2rem'}}>
-      <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'0.5rem'}}>WHAT BRINGS YOU TO THE CROSSROADS?</div>
+      <div style={{color:'#6a5a4a',fontSize:'0.75rem',letterSpacing:'0.2em',marginBottom:'0.5rem'}}>WHO WERE YOU BEFORE?</div>
       <div style={{color:'#3a2a1a',fontSize:'0.68rem',marginBottom:'1.5rem'}}>Choose one or write your own.</div>
       <div style={{display:'flex',flexDirection:'column',gap:'0.5rem',width:'100%',maxWidth:'440px',marginBottom:'1.25rem'}}>
         {BACKSTORY_OPTIONS.map((opt,i)=>(
