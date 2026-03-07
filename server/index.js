@@ -354,7 +354,9 @@ app.post('/api/fast-travel', auth, async (req, res) => {
 // Generates images via Gemini and caches them globally in the DB.
 // Images are entity-scoped (scene/npc/item) and shared across all users.
 
-const IMAGE_STYLE = 'Dark medieval fantasy oil painting. Painterly brushwork, muted earth tones, cinematic composition, highly detailed. No text, no UI, no watermarks, no borders, no frames.';
+// Style goes at the END — image models weight the beginning of the prompt most heavily,
+// so scene-specific content must come first. Style is a brief suffix.
+const IMAGE_STYLE_SUFFIX = 'dark medieval fantasy, oil painting, painterly brushwork, muted earth tones, atmospheric lighting, highly detailed, no text, no watermarks, no frames';
 
 const MOOD_LIGHTING = {
   tense:     'high drama, deep contrast, harsh raking shadows',
@@ -402,20 +404,68 @@ app.post('/api/image', auth, async (req, res) => {
   if (entityType === 'npc') {
     const npc = NPC_CATALOG.find(n => n.id === entityId);
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
-    fullPrompt = `${IMAGE_STYLE} Character portrait, upper body. ${npc.name}, ${npc.role}. ${npc.physicalDescription} Facing viewer, expressive, medieval costume.`;
+    fullPrompt = `${npc.name}, ${npc.role}, ${npc.physicalDescription}, character portrait upper body, facing viewer, expressive face, medieval costume. ${IMAGE_STYLE_SUFFIX}`;
   } else {
-    // Assemble a rich composite prompt from the GM's scene description + context
-    const moodNote   = MOOD_LIGHTING[context.mood] || '';
-    const locNote    = context.location ? context.location.replace(/_/g, ' ') : '';
-    const charNote   = context.characterDesc || '';
+    // ── Auto-expand short GM prompts using Gemini text model ─────────────────
+    // The GM frequently writes 8-12 word prompts despite instructions. If the
+    // prompt is under 20 words, ask Gemini to expand it into a proper image
+    // generation prompt using the narrative context we have.
+    let sceneDesc = prompt || '';
+    const wordCount = sceneDesc.trim().split(/\s+/).length;
+
+    if (wordCount < 20 && process.env.GEMINI_API_KEY) {
+      try {
+        const narrative  = (context.narrative || '').slice(0, 500);
+        const loc        = (context.location || '').replace(/_/g, ' ');
+        const char       = context.characterDesc || 'a traveler';
+        const mood       = context.mood || 'mysterious';
+        const expandBody = {
+          contents: [{
+            parts: [{
+              text: `You write image generation prompts for a dark medieval fantasy RPG.
+
+Scene narrative: "${narrative}"
+Location: ${loc}
+Character: ${char}
+Mood: ${mood}
+GM's brief visual note: "${sceneDesc}"
+
+Write a 40-50 word image prompt as comma-separated visual noun phrases (NO full sentences, NO style words like "oil painting"). Include: exact light source, 2-3 specific surface materials or objects in the scene, what the character is doing, dominant atmosphere. Be specific to THIS scene.
+
+Output ONLY the comma-separated noun phrases, nothing else.`
+            }]
+          }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 120 },
+        };
+        const expandRes = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expandBody) }
+        );
+        if (expandRes.ok) {
+          const expandData = await expandRes.json();
+          const expanded = expandData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (expanded && expanded.split(/\s+/).length > 15) {
+            console.log(`[image] expanded ${wordCount}→${expanded.split(/\s+/).length} words: ${expanded.slice(0, 100)}`);
+            sceneDesc = expanded;
+          }
+        }
+      } catch (e) {
+        console.log('[image] prompt expansion failed:', e.message);
+      }
+    }
+
+    // Scene description FIRST (highest weight), mood + context next, style suffix LAST
+    const moodNote = MOOD_LIGHTING[context.mood] || '';
+    const locNote  = context.location ? context.location.replace(/_/g, ' ') : '';
+    const charNote = context.characterDesc || '';
     const parts = [
-      IMAGE_STYLE,
-      prompt,                           // GM's detailed scene description (40-60 words)
+      sceneDesc,
       moodNote,
-      locNote   ? `Setting: ${locNote}` : '',
-      charNote  ? `Main character: ${charNote}` : '',
+      locNote  ? `location: ${locNote}` : '',
+      charNote ? `foreground: ${charNote}` : '',
+      IMAGE_STYLE_SUFFIX,
     ].filter(Boolean);
-    fullPrompt = parts.join('. ');
+    fullPrompt = parts.join(', ');
   }
 
   console.log(`[image] GENERATING — fullPrompt: ${fullPrompt}`);

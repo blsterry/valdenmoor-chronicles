@@ -623,6 +623,7 @@ export default function Game({ user, onLogout, onAdmin }) {
           characterDesc: newChar.name
             ? `${newChar.name}, ${newChar.background || 'traveler'}, medieval clothing`
             : '',
+          narrative: (parsed.narrative || '').slice(0, 500),
         };
         fetchSceneImage(newScene, slugifyPrompt(newScene), imgCtx);
       }
@@ -676,6 +677,7 @@ export default function Game({ user, onLogout, onAdmin }) {
             mood: result.parsed.mood || 'tense',
             location: toLoc,
             characterDesc: character.name ? `${character.name}, ${character.background || 'traveler'}, medieval clothing` : '',
+            narrative: (result.parsed.narrative || '').slice(0, 500),
           });
         }
         encNpcIds.forEach(id => fetchNpcPortrait(id));
