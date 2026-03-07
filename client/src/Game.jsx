@@ -470,6 +470,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [npcPortraits, setNpcPortraits] = useState({});   // { npcId: base64png }
   const [imgConfirm, setImgConfirm]     = useState(null); // { type: 'all'|'current' } or null
   const imageGenerating                 = useRef(new Set());
+  const lastSceneByLocation             = useRef({});   // { locationId: entityId } for visual continuity
   const logEndRef = useRef(null);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
@@ -484,14 +485,25 @@ export default function Game({ user, onLogout, onAdmin }) {
     const tag = `scene:${sceneKey}`;
     if (imageGenerating.current.has(tag)) return;
     imageGenerating.current.add(tag);
+
+    // Pass prior scene entity_id for this location so the server can use its
+    // cached prompt as a visual anchor — keeps recurring elements (shrines,
+    // architecture, lighting) consistent between sequential scene images.
+    const loc = ctx.location || '';
+    const prevEntityId = loc ? (lastSceneByLocation.current[loc] || null) : null;
+    const fullCtx = prevEntityId ? { ...ctx, prevEntityId } : ctx;
+
     console.log('[image] requesting scene:', sceneKey.slice(0, 80));
     console.log('[image] GM scenePrompt:', scenePrompt);
-    console.log('[image] context:', ctx);
-    getImage('scene', sceneKey, scenePrompt, ctx)
+    if (prevEntityId) console.log('[image] visual anchor from:', prevEntityId.slice(0, 60));
+
+    getImage('scene', sceneKey, scenePrompt, fullCtx)
       .then(data => {
         if (data) {
           console.log('[image] received OK for:', sceneKey.slice(0, 60));
           setSceneImages(prev => ({ ...prev, [sceneKey]: data }));
+          // Record this scene as the visual anchor for future scenes at this location
+          if (loc) lastSceneByLocation.current[loc] = sceneKey;
         } else {
           console.warn('[image] null response for:', sceneKey.slice(0, 60));
         }
