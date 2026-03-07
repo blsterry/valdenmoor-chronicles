@@ -351,10 +351,23 @@ app.post('/api/fast-travel', auth, async (req, res) => {
 });
 
 // ─── Image Generation ─────────────────────────────────────────────────────────
-// Generates images via Google Imagen 3 and caches them globally in the DB.
+// Generates images via Gemini and caches them globally in the DB.
 // Images are entity-scoped (scene/npc/item) and shared across all users.
 
 const IMAGE_STYLE = 'Dark medieval fantasy, painterly oil painting, atmospheric lighting, muted earth tones with warm candlelight or cold moonlight, cinematic composition, highly detailed. No text, no watermarks, no borders, no frames.';
+
+// Diagnostic: list available Gemini models (no auth needed, read-only)
+app.get('/api/image-diag', async (req, res) => {
+  if (!process.env.GEMINI_API_KEY) return res.json({ error: 'No GEMINI_API_KEY set' });
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}&pageSize=100`);
+    const data = await r.json();
+    const models = (data.models || []).map(m => ({ name: m.name, methods: m.supportedGenerationMethods }));
+    res.json({ keyStatus: r.status, totalModels: models.length, models });
+  } catch (e) {
+    res.json({ error: e.message });
+  }
+});
 
 app.post('/api/image', auth, async (req, res) => {
   const { entityType, entityId, prompt } = req.body;
@@ -382,36 +395,44 @@ app.post('/api/image', auth, async (req, res) => {
     fullPrompt = `${IMAGE_STYLE} ${prompt}`;
   }
 
+  // Try models in order until one works
+  const MODELS = [
+    { name: 'gemini-2.5-flash-image',  body: { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio } } } },
+    { name: 'gemini-2.0-flash-exp',    body: { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } } },
+    { name: 'gemini-2.0-flash',        body: { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } } },
+  ];
+
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: fullPrompt }] }],
-          generationConfig: {
-            responseModalities: ['TEXT', 'IMAGE'],
-            imageConfig: { aspectRatio },
-          },
-        }),
+    let imageData = null;
+    const diagnostics = [];
+
+    for (const { name, body } of MODELS) {
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+      );
+      if (!r.ok) {
+        const errText = await r.text();
+        console.log(`[image] ${name}: HTTP ${r.status} — ${errText.slice(0, 300)}`);
+        diagnostics.push({ model: name, status: r.status, error: errText.slice(0, 300) });
+        continue;
       }
-    );
-
-    if (!response.ok) {
-      const err = await response.text();
-      console.error(`Gemini image HTTP ${response.status} for ${entityType}/${entityId}:`, err);
-      return res.status(502).json({ error: 'Image generation failed', geminiStatus: response.status, geminiError: err.slice(0, 500) });
+      const data = await r.json();
+      const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+      if (part?.inlineData?.data) {
+        imageData = part.inlineData.data;
+        console.log(`[image] ${name}: OK for ${entityType}/${entityId} (${Math.round(imageData.length / 1024)}KB)`);
+        break;
+      }
+      const partKeys = (data.candidates?.[0]?.content?.parts || []).map(p => Object.keys(p));
+      console.log(`[image] ${name}: HTTP 200 but no image part. Parts: ${JSON.stringify(partKeys)}`);
+      diagnostics.push({ model: name, status: 200, error: 'no image in response', partKeys });
     }
 
-    const data = await response.json();
-    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
-    const imageData = imagePart?.inlineData?.data;
     if (!imageData) {
-      console.error('Gemini image: no image part in response. Keys:', JSON.stringify(data).slice(0, 300));
-      return res.status(502).json({ error: 'No image in response' });
+      console.error('[image] All models failed:', JSON.stringify(diagnostics));
+      return res.status(502).json({ error: 'Image generation failed', diagnostics });
     }
-    console.log(`Gemini image OK: ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
 
     // Cache globally
     await pool.query(
