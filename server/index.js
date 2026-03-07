@@ -397,13 +397,17 @@ app.post('/api/image', auth, async (req, res) => {
 
     if (!response.ok) {
       const err = await response.text();
-      console.error('Imagen error:', err);
+      console.error(`Imagen 3 HTTP ${response.status} for ${entityType}/${entityId}:`, err);
       return res.status(502).json({ error: 'Image generation failed' });
     }
 
     const data = await response.json();
     const imageData = data.predictions?.[0]?.bytesBase64Encoded;
-    if (!imageData) return res.status(502).json({ error: 'No image in response' });
+    if (!imageData) {
+      console.error('Imagen 3 returned no image. Response keys:', Object.keys(data));
+      return res.status(502).json({ error: 'No image in response' });
+    }
+    console.log(`Imagen 3 OK: ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
 
     // Cache globally
     await pool.query(

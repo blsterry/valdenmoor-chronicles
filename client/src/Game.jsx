@@ -504,8 +504,12 @@ export default function Game({ user, onLogout, onAdmin }) {
         setOptions(saved.options || []);
         setCurrentScene(saved.scene || null);
         setScreen('game');
-        // Pre-fetch current scene image
-        if (saved.scene) fetchSceneImage(saved.scene, slugifyPrompt(saved.scene));
+        // Pre-fetch images for every unique scenePrompt in the log (cached on server, so fast on repeat)
+        const logScenes = [...new Set(
+          (saved.display_log || []).filter(e => e.scenePrompt).map(e => e.scenePrompt)
+        )];
+        if (saved.scene && !logScenes.includes(saved.scene)) logScenes.push(saved.scene);
+        logScenes.forEach(sp => fetchSceneImage(sp, slugifyPrompt(sp)));
         // Pre-fetch portraits for all known NPCs
         Object.keys(npcData || {}).forEach(npcId => fetchNpcPortrait(npcId));
       } else {
