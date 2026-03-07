@@ -123,7 +123,10 @@ export default function Admin({ onBack }) {
             <div style={{ color: '#4a3a2a', fontSize: '0.6rem', marginBottom: '0.2rem' }}>TEMPORARY PASSWORD</div>
             <input style={S.input} value={newUser.password}
               onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))}
-              placeholder="6+ characters" type="password" />
+              placeholder="password" type="password" />
+            <div style={{ color: newUser.password.length > 0 && newUser.password.length < 6 ? '#c94a4a' : '#3a2a1a', fontSize: '0.58rem', marginTop: '0.25rem' }}>
+              min. 6 characters · no spaces
+            </div>
           </div>
           <button
             style={S.btn('#4caf7a')}
@@ -157,15 +160,20 @@ export default function Admin({ onBack }) {
           </div>
 
           {!u.is_admin && (
-            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input
-                style={{ ...S.input, width: 180 }}
-                placeholder="New password (6+)"
-                type="password"
-                value={pwReset[u.id] || ''}
-                onChange={e => setPwReset(p => ({ ...p, [u.id]: e.target.value }))}
-              />
-              <button style={S.btn('#b09a70')} onClick={() => resetPw(u)}>Reset Password</button>
+            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <input
+                  style={{ ...S.input, width: 180 }}
+                  placeholder="New password"
+                  type="password"
+                  value={pwReset[u.id] || ''}
+                  onChange={e => setPwReset(p => ({ ...p, [u.id]: e.target.value }))}
+                />
+                <div style={{ color: (pwReset[u.id]?.length > 0 && pwReset[u.id]?.length < 6) ? '#c94a4a' : '#3a2a1a', fontSize: '0.58rem', marginTop: '0.2rem' }}>
+                  min. 6 characters · no spaces
+                </div>
+              </div>
+              <button style={{ ...S.btn('#b09a70'), marginBottom: '1rem' }} onClick={() => resetPw(u)}>Reset Password</button>
             </div>
           )}
         </div>
