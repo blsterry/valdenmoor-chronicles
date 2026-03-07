@@ -354,9 +354,12 @@ app.post('/api/fast-travel', auth, async (req, res) => {
 // Generates images via Gemini and caches them globally in the DB.
 // Images are entity-scoped (scene/npc/item) and shared across all users.
 
-// Style goes at the END — image models weight the beginning of the prompt most heavily,
-// so scene-specific content must come first. Style is a brief suffix.
-const IMAGE_STYLE_SUFFIX = 'dark medieval fantasy, oil painting, painterly brushwork, muted earth tones, atmospheric lighting, highly detailed, no text, no watermarks, no frames';
+// Style suffix — kept minimal so scene content dominates the prompt budget.
+const IMAGE_STYLE_SUFFIX = 'dark medieval fantasy, oil painting, no text, no watermarks';
+
+// Text models to try for scene extraction, in preference order.
+// 'gemini-2.0-flash' (no suffix) returns 404 — must use versioned names.
+const EXTRACT_MODELS = ['gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash'];
 
 const MOOD_LIGHTING = {
   tense:     'high drama, deep contrast, harsh raking shadows',
@@ -406,79 +409,81 @@ app.post('/api/image', auth, async (req, res) => {
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
     fullPrompt = `${npc.name}, ${npc.role}, ${npc.physicalDescription}, character portrait upper body, facing viewer, expressive face, medieval costume. ${IMAGE_STYLE_SUFFIX}`;
   } else {
-    // ── Always derive the image prompt from the narrative using Gemini text ────
-    // The GM's scenePrompt is unreliable (often 8-12 words, generic, misses key
-    // scene elements). We always extract the most visually significant details
-    // directly from the narrative text when available.
+    // ── Extract scene details from the narrative via a Gemini text call ────────
+    // The GM's scenePrompt is a short hint — we derive the real image prompt
+    // from the narrative text, which contains the actual visual details.
     let sceneDesc = prompt || '';
+    let extractionSucceeded = false;
 
     if (process.env.GEMINI_API_KEY) {
-      try {
-        const narrative = (context.narrative || '').slice(0, 600);
-        const loc       = (context.location || '').replace(/_/g, ' ') || 'unknown location';
-        const char      = context.characterDesc || 'a traveler';
-        const mood      = context.mood || 'mysterious';
+      const narrative = (context.narrative || '').slice(0, 700);
+      const loc       = (context.location || '').replace(/_/g, ' ') || 'unknown location';
+      const char      = context.characterDesc || 'a traveler';
+      const mood      = context.mood || 'mysterious';
 
-        const extractText = `You extract visual details from RPG scene text to write image generation prompts.
+      const extractText = `You write image generation prompts for a dark medieval fantasy RPG.
 
-SCENE NARRATIVE:
+SCENE NARRATIVE (the authoritative source — use details from here):
 "${narrative}"
 
-CONTEXT: Location: ${loc} | Character: ${char} | Mood: ${mood} | GM note: "${sceneDesc}"
+GM hint (may be vague or short): "${sceneDesc}"
+Location: ${loc} | Character: ${char} | Mood: ${mood}
 
-Extract the most visually significant details and write a 40-55 word image prompt using comma-separated noun phrases ONLY (no full sentences, no style words like "oil painting").
+Write a 40-50 word image prompt as comma-separated noun phrases. No sentences. No style words (no "oil painting", "fantasy", "detailed").
 
-Extract these 6 elements in order — pull from the narrative, invent only if not mentioned:
-1. SETTING: specific room or outdoor space + one material detail (stone floor, thatched ceiling, muddy road)
-2. LIGHT: exact source and quality (guttering tallow candle, pale moonlight through broken shutters, grey overcast dawn)
-3. OBJECTS: 2 specific things visible in this scene (cracked shrine with ash offerings, weathered notice board, iron-banded door)
-4. CHARACTER: what the player is doing right now (standing at bar, crouching by door, reading a notice)
-5. PEOPLE: any NPC present + one thing they are doing (innkeeper wiping counter, cloaked figure watching from corner) — omit if no NPCs
-6. ATMOSPHERE: one detail (smoke haze, cold draft, distant thunder, dead silence, smell of tallow)
+Include ONLY these elements, each on one phrase — skip any that aren't in the narrative:
+- Time of day and light source (e.g. "gathering dusk", "single guttering tallow candle", "pale moonlight through cracked shutters")
+- The specific setting with one texture detail (e.g. "four dirt roads converging at stone crossroads", "low-ceilinged inn common room with smoke-stained beams")
+- 2 distinct objects actually mentioned (e.g. "weathered wooden noticeboard papers fluttering", "carved stone shrine faces worn smooth by rain")
+- Character's action (e.g. "lone traveler standing before shrine looking toward inn")
+- Any NPC present and their action — omit entirely if no NPC in narrative
+- One atmosphere detail (e.g. "woodsmoke on cool evening air", "distant voices muffled by thick walls")
 
-Output ONLY the comma-separated noun phrases. Nothing else.`;
+No redundancy — each phrase adds new information. If a detail wasn't in the narrative, infer only what the setting and time of day logically imply.
+Output ONLY the comma-separated phrases.`;
 
-        const expandRes = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: extractText }] }],
-              generationConfig: { temperature: 0.3, maxOutputTokens: 150 },
-            }),
-          }
-        );
-        if (expandRes.ok) {
-          const expandData = await expandRes.json();
-          const extracted = expandData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (extracted && extracted.split(/\s+/).length > 15) {
-            const before = sceneDesc.split(/\s+/).length;
-            console.log(`[image] extracted ${before}→${extracted.split(/\s+/).length} words: ${extracted.slice(0, 120)}`);
-            sceneDesc = extracted;
+      const extractBody = {
+        contents: [{ parts: [{ text: extractText }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: 130 },
+      };
+
+      for (const model of EXTRACT_MODELS) {
+        try {
+          const r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(extractBody) }
+          );
+          if (r.ok) {
+            const d = await r.json();
+            const extracted = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+            if (extracted && extracted.split(/\s+/).length > 15) {
+              console.log(`[image] extracted via ${model} (${extracted.split(/\s+/).length}w): ${extracted.slice(0, 140)}`);
+              sceneDesc = extracted;
+              extractionSucceeded = true;
+              break;
+            } else {
+              console.log(`[image] ${model} returned too short: "${extracted}"`);
+            }
           } else {
-            console.log('[image] extraction returned too short, using GM prompt as-is');
+            console.log(`[image] ${model} HTTP ${r.status}`);
           }
-        } else {
-          console.log(`[image] extraction HTTP ${expandRes.status}, using GM prompt as-is`);
+        } catch (e) {
+          console.log(`[image] ${model} error: ${e.message}`);
         }
-      } catch (e) {
-        console.log('[image] extraction failed:', e.message, '— using GM prompt as-is');
       }
+      if (!extractionSucceeded) console.log('[image] all extraction models failed — using GM prompt as-is');
     }
 
-    // Scene description FIRST (highest weight), mood + context next, style suffix LAST
-    const moodNote = MOOD_LIGHTING[context.mood] || '';
-    const locNote  = context.location ? context.location.replace(/_/g, ' ') : '';
-    const charNote = context.characterDesc || '';
-    const parts = [
-      sceneDesc,
-      moodNote,
-      locNote  ? `location: ${locNote}` : '',
-      charNote ? `foreground: ${charNote}` : '',
-      IMAGE_STYLE_SUFFIX,
-    ].filter(Boolean);
-    fullPrompt = parts.join(', ');
+    // When extraction succeeded: scene desc already contains all context, append only brief style.
+    // When extraction failed: pad with mood/location/character as fallback context.
+    if (extractionSucceeded) {
+      fullPrompt = `${sceneDesc}, ${IMAGE_STYLE_SUFFIX}`;
+    } else {
+      const moodNote = MOOD_LIGHTING[context.mood] || '';
+      const locNote  = context.location ? context.location.replace(/_/g, ' ') : '';
+      const charNote = context.characterDesc || '';
+      fullPrompt = [sceneDesc, moodNote, locNote, charNote, IMAGE_STYLE_SUFFIX].filter(Boolean).join(', ');
+    }
   }
 
   console.log(`[image] GENERATING — fullPrompt: ${fullPrompt}`);
