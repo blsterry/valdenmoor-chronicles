@@ -821,13 +821,17 @@ export default function Game({ user, onLogout, onAdmin }) {
     const key = slugifyPrompt(currentScene);
     await clearSceneImage(key);
     setSceneImages(prev => { const n = { ...prev }; delete n[key]; return n; });
+    // Find the narrative text from the log entry that generated this scenePrompt
+    // so the expansion call has the full scene context to work from
+    const logEntry = [...displayLog].reverse().find(e => e.scenePrompt === currentScene && e.text);
     fetchSceneImage(currentScene, key, {
       mood,
       location: character?.location || '',
       characterDesc: character?.name ? `${character.name}, ${character.background || 'traveler'}, medieval clothing` : '',
+      narrative: (logEntry?.text || '').slice(0, 500),
     });
     showNotif('Regenerating scene image...', 'info', 3000);
-  }, [currentScene, character, mood, fetchSceneImage, showNotif]);
+  }, [currentScene, character, mood, displayLog, fetchSceneImage, showNotif]);
 
   const theme = MOOD_THEMES[mood] || MOOD_THEMES.mysterious;
 
