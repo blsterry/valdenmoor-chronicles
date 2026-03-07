@@ -395,38 +395,58 @@ app.post('/api/image', auth, async (req, res) => {
     fullPrompt = `${IMAGE_STYLE} ${prompt}`;
   }
 
-  // Try models in order until one works
-  const MODELS = [
-    { name: 'gemini-2.5-flash-image',  body: { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio } } } },
-    { name: 'gemini-2.0-flash-exp',    body: { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } } },
-    { name: 'gemini-2.0-flash',        body: { contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } } },
-  ];
-
   try {
     let imageData = null;
     const diagnostics = [];
 
-    for (const { name, body } of MODELS) {
+    // ── 1. Try Imagen 4 Fast (dedicated image model, predict endpoint) ──────
+    {
       const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instances: [{ prompt: fullPrompt }], parameters: { sampleCount: 1, aspectRatio } }) }
       );
-      if (!r.ok) {
-        const errText = await r.text();
-        console.log(`[image] ${name}: HTTP ${r.status} — ${errText.slice(0, 300)}`);
-        diagnostics.push({ model: name, status: r.status, error: errText.slice(0, 300) });
-        continue;
+      if (r.ok) {
+        const data = await r.json();
+        imageData = data.predictions?.[0]?.bytesBase64Encoded || null;
+        if (imageData) console.log(`[image] imagen-4.0-fast: OK for ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
+        else { console.log('[image] imagen-4.0-fast: HTTP 200 but no bytesBase64Encoded'); diagnostics.push({ model: 'imagen-4.0-fast', status: 200, error: 'no image data' }); }
+      } else {
+        const err = await r.text();
+        console.log(`[image] imagen-4.0-fast: HTTP ${r.status} — ${err.slice(0, 300)}`);
+        diagnostics.push({ model: 'imagen-4.0-fast', status: r.status, error: err.slice(0, 300) });
       }
-      const data = await r.json();
-      const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
-      if (part?.inlineData?.data) {
-        imageData = part.inlineData.data;
-        console.log(`[image] ${name}: OK for ${entityType}/${entityId} (${Math.round(imageData.length / 1024)}KB)`);
-        break;
+    }
+
+    // ── 2. Fallback: Gemini image models (generateContent endpoint) ──────────
+    if (!imageData) {
+      const GEMINI_MODELS = [
+        'gemini-2.0-flash-exp-image-generation',
+        'gemini-2.5-flash-image',
+      ];
+      for (const name of GEMINI_MODELS) {
+        if (imageData) break;
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }) }
+        );
+        if (!r.ok) {
+          const err = await r.text();
+          console.log(`[image] ${name}: HTTP ${r.status} — ${err.slice(0, 300)}`);
+          diagnostics.push({ model: name, status: r.status, error: err.slice(0, 300) });
+          continue;
+        }
+        const data = await r.json();
+        const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+        if (part?.inlineData?.data) {
+          imageData = part.inlineData.data;
+          console.log(`[image] ${name}: OK for ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
+        } else {
+          console.log(`[image] ${name}: HTTP 200 but no image part`);
+          diagnostics.push({ model: name, status: 200, error: 'no image in response' });
+        }
       }
-      const partKeys = (data.candidates?.[0]?.content?.parts || []).map(p => Object.keys(p));
-      console.log(`[image] ${name}: HTTP 200 but no image part. Parts: ${JSON.stringify(partKeys)}`);
-      diagnostics.push({ model: name, status: 200, error: 'no image in response', partKeys });
     }
 
     if (!imageData) {
