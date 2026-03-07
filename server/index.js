@@ -576,7 +576,7 @@ app.post('/api/gm', auth, async (req, res) => {
     } catch {
       parsed = {
         narrative: raw || 'A strange silence falls upon the world...',
-        scenePrompt: 'misty landscape dark moody atmospheric medieval',
+        scenePrompt: 'misty wilderness road, pale overcast light, gnarled trees on either side, mud underfoot, distant crow call, traveler standing still listening',
         stateChanges: {},
         npcStateChanges: [],
         options: ['Look around', 'Wait and listen', 'Press onward', 'Rest a moment'],
@@ -852,7 +852,7 @@ CRITICAL: Respond ONLY with valid JSON. No markdown. No prose outside JSON. No b
 RESPONSE SCHEMA:
 {
   "narrative": "2-3 short grounded paragraphs",
-  "scenePrompt": "8-12 word visual scene description",
+  "scenePrompt": "rain-soaked stone inn courtyard, dusk, orange lantern glow from open door, tired merchant unloading horse cart, woman in gray cloak watching from shadow of stable, mud and straw underfoot",
   "minutesElapsed": 15,
   "stateChanges": {
     "hp": null,
@@ -893,6 +893,7 @@ RESPONSE SCHEMA:
       "flags": {}
     }
   ],
+  "options": ["Do something", "Do something else", "Do a third thing", "Do a fourth thing"],
   "mood": "tense|calm|mysterious|combat|discovery|social"
 }`;
 }
