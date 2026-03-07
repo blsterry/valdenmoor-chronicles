@@ -406,51 +406,64 @@ app.post('/api/image', auth, async (req, res) => {
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
     fullPrompt = `${npc.name}, ${npc.role}, ${npc.physicalDescription}, character portrait upper body, facing viewer, expressive face, medieval costume. ${IMAGE_STYLE_SUFFIX}`;
   } else {
-    // ── Auto-expand short GM prompts using Gemini text model ─────────────────
-    // The GM frequently writes 8-12 word prompts despite instructions. If the
-    // prompt is under 20 words, ask Gemini to expand it into a proper image
-    // generation prompt using the narrative context we have.
+    // ── Always derive the image prompt from the narrative using Gemini text ────
+    // The GM's scenePrompt is unreliable (often 8-12 words, generic, misses key
+    // scene elements). We always extract the most visually significant details
+    // directly from the narrative text when available.
     let sceneDesc = prompt || '';
-    const wordCount = sceneDesc.trim().split(/\s+/).length;
 
-    if (wordCount < 20 && process.env.GEMINI_API_KEY) {
+    if (process.env.GEMINI_API_KEY) {
       try {
-        const narrative  = (context.narrative || '').slice(0, 500);
-        const loc        = (context.location || '').replace(/_/g, ' ');
-        const char       = context.characterDesc || 'a traveler';
-        const mood       = context.mood || 'mysterious';
-        const expandBody = {
-          contents: [{
-            parts: [{
-              text: `You write image generation prompts for a dark medieval fantasy RPG.
+        const narrative = (context.narrative || '').slice(0, 600);
+        const loc       = (context.location || '').replace(/_/g, ' ') || 'unknown location';
+        const char      = context.characterDesc || 'a traveler';
+        const mood      = context.mood || 'mysterious';
 
-Scene narrative: "${narrative}"
-Location: ${loc}
-Character: ${char}
-Mood: ${mood}
-GM's brief visual note: "${sceneDesc}"
+        const extractText = `You extract visual details from RPG scene text to write image generation prompts.
 
-Write a 40-50 word image prompt as comma-separated visual noun phrases (NO full sentences, NO style words like "oil painting"). Include: exact light source, 2-3 specific surface materials or objects in the scene, what the character is doing, dominant atmosphere. Be specific to THIS scene.
+SCENE NARRATIVE:
+"${narrative}"
 
-Output ONLY the comma-separated noun phrases, nothing else.`
-            }]
-          }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 120 },
-        };
+CONTEXT: Location: ${loc} | Character: ${char} | Mood: ${mood} | GM note: "${sceneDesc}"
+
+Extract the most visually significant details and write a 40-55 word image prompt using comma-separated noun phrases ONLY (no full sentences, no style words like "oil painting").
+
+Extract these 6 elements in order — pull from the narrative, invent only if not mentioned:
+1. SETTING: specific room or outdoor space + one material detail (stone floor, thatched ceiling, muddy road)
+2. LIGHT: exact source and quality (guttering tallow candle, pale moonlight through broken shutters, grey overcast dawn)
+3. OBJECTS: 2 specific things visible in this scene (cracked shrine with ash offerings, weathered notice board, iron-banded door)
+4. CHARACTER: what the player is doing right now (standing at bar, crouching by door, reading a notice)
+5. PEOPLE: any NPC present + one thing they are doing (innkeeper wiping counter, cloaked figure watching from corner) — omit if no NPCs
+6. ATMOSPHERE: one detail (smoke haze, cold draft, distant thunder, dead silence, smell of tallow)
+
+Output ONLY the comma-separated noun phrases. Nothing else.`;
+
         const expandRes = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(expandBody) }
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: extractText }] }],
+              generationConfig: { temperature: 0.3, maxOutputTokens: 150 },
+            }),
+          }
         );
         if (expandRes.ok) {
           const expandData = await expandRes.json();
-          const expanded = expandData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (expanded && expanded.split(/\s+/).length > 15) {
-            console.log(`[image] expanded ${wordCount}→${expanded.split(/\s+/).length} words: ${expanded.slice(0, 100)}`);
-            sceneDesc = expanded;
+          const extracted = expandData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+          if (extracted && extracted.split(/\s+/).length > 15) {
+            const before = sceneDesc.split(/\s+/).length;
+            console.log(`[image] extracted ${before}→${extracted.split(/\s+/).length} words: ${extracted.slice(0, 120)}`);
+            sceneDesc = extracted;
+          } else {
+            console.log('[image] extraction returned too short, using GM prompt as-is');
           }
+        } else {
+          console.log(`[image] extraction HTTP ${expandRes.status}, using GM prompt as-is`);
         }
       } catch (e) {
-        console.log('[image] prompt expansion failed:', e.message);
+        console.log('[image] extraction failed:', e.message, '— using GM prompt as-is');
       }
     }
 
