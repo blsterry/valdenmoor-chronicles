@@ -384,30 +384,31 @@ app.post('/api/image', auth, async (req, res) => {
 
   try {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${process.env.GEMINI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          instances: [{ prompt: fullPrompt }],
-          parameters: { sampleCount: 1, aspectRatio },
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig: { responseModalities: ['image', 'text'] },
         }),
       }
     );
 
     if (!response.ok) {
       const err = await response.text();
-      console.error(`Imagen 3 HTTP ${response.status} for ${entityType}/${entityId}:`, err);
+      console.error(`Gemini image HTTP ${response.status} for ${entityType}/${entityId}:`, err);
       return res.status(502).json({ error: 'Image generation failed' });
     }
 
     const data = await response.json();
-    const imageData = data.predictions?.[0]?.bytesBase64Encoded;
+    const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+    const imageData = imagePart?.inlineData?.data;
     if (!imageData) {
-      console.error('Imagen 3 returned no image. Response keys:', Object.keys(data));
+      console.error('Gemini image: no image part in response. Keys:', JSON.stringify(data).slice(0, 300));
       return res.status(502).json({ error: 'No image in response' });
     }
-    console.log(`Imagen 3 OK: ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
+    console.log(`Gemini image OK: ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
 
     // Cache globally
     await pool.query(
