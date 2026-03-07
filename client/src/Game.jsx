@@ -95,7 +95,9 @@ function needsLabel(hunger, thirst, fatigue) {
 }
 
 function slugifyPrompt(p) {
-  return (p || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 60);
+  // No length limit — longer prompts need the full slug to avoid cache collisions.
+  // Old 60-char slugs in the DB become orphaned (never matched again), forcing fresh generation.
+  return (p || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
 const INITIAL_CHARACTER = {
@@ -479,8 +481,18 @@ export default function Game({ user, onLogout, onAdmin }) {
     const tag = `scene:${sceneKey}`;
     if (imageGenerating.current.has(tag)) return;
     imageGenerating.current.add(tag);
+    console.log('[image] requesting scene:', sceneKey.slice(0, 80));
+    console.log('[image] GM scenePrompt:', scenePrompt);
+    console.log('[image] context:', ctx);
     getImage('scene', sceneKey, scenePrompt, ctx)
-      .then(data => { if (data) setSceneImages(prev => ({ ...prev, [sceneKey]: data })); })
+      .then(data => {
+        if (data) {
+          console.log('[image] received OK for:', sceneKey.slice(0, 60));
+          setSceneImages(prev => ({ ...prev, [sceneKey]: data }));
+        } else {
+          console.warn('[image] null response for:', sceneKey.slice(0, 60));
+        }
+      })
       .finally(() => imageGenerating.current.delete(tag));
   }, []);
 
