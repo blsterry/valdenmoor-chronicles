@@ -443,13 +443,33 @@ app.post('/api/image', auth, async (req, res) => {
       const loc       = (context.location || '').replace(/_/g, ' ') || 'unknown location';
       const mood      = context.mood || 'mysterious';
 
+      // Look up the prior scene's cached text prompt for visual continuity.
+      // Strip the style suffix so only visual noun phrases are passed as the anchor.
+      let visualAnchor = '';
+      if (context.prevEntityId) {
+        try {
+          const { rows: anchorRows } = await pool.query(
+            'SELECT prompt FROM images WHERE entity_type=$1 AND entity_id=$2',
+            ['scene', context.prevEntityId]
+          );
+          if (anchorRows.length > 0) {
+            visualAnchor = anchorRows[0].prompt
+              .replace(/,?\s*(dark medieval fantasy|oil painting|no text|no watermarks)[^,]*/gi, '')
+              .trim().replace(/,\s*$/, '');
+            console.log(`[image] visual anchor: ${visualAnchor.slice(0, 100)}`);
+          }
+        } catch (e) {
+          console.log(`[image] visual anchor lookup failed: ${e.message}`);
+        }
+      }
+
       const extractText = `You write image generation prompts for a dark medieval fantasy RPG.
 
 SCENE NARRATIVE — this is the primary source, pull details from here:
 "${narrative}"
 
 GM note (may be vague): "${sceneDesc}"
-Location: ${loc} | Mood: ${mood}
+Location: ${loc} | Mood: ${mood}${visualAnchor ? `\n\nVISUAL CONTINUITY — the prior scene established these elements. Where the same objects/structures appear in the new narrative, describe them consistently (same architecture, materials, lighting style):\n"${visualAnchor}"` : ''}
 
 Write a 35-45 word image prompt as comma-separated noun phrases only. No sentences. No style words (no "oil painting", "fantasy", "detailed", "cinematic").
 
