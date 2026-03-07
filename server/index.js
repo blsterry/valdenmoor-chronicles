@@ -401,7 +401,7 @@ app.post('/api/image', auth, async (req, res) => {
     if (!response.ok) {
       const err = await response.text();
       console.error(`Gemini image HTTP ${response.status} for ${entityType}/${entityId}:`, err);
-      return res.status(502).json({ error: 'Image generation failed' });
+      return res.status(502).json({ error: 'Image generation failed', geminiStatus: response.status, geminiError: err.slice(0, 500) });
     }
 
     const data = await response.json();
