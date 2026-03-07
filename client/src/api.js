@@ -140,6 +140,26 @@ export async function getImage(entityType, entityId, prompt = '', context = {}) 
   }
 }
 
+// Delete ALL cached images (they will regenerate on next encounter)
+export async function clearAllImages() {
+  try {
+    const res = await fetch(`${BASE}/api/images`, { method: 'DELETE', headers: authHeaders() });
+    if (!res.ok) return null;
+    return res.json(); // { deleted: N }
+  } catch { return null; }
+}
+
+// Delete one cached scene image by its entity_id slug
+export async function clearSceneImage(entityId) {
+  try {
+    const res = await fetch(`${BASE}/api/images/${encodeURIComponent(entityId)}`, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    if (!res.ok) return null;
+    return res.json(); // { deleted: 0|1 }
+  } catch { return null; }
+}
+
 // ─── GM ──────────────────────────────────────────────────────────────────────
 
 // Build a reduced NPC context to send with GM calls

@@ -499,6 +499,24 @@ app.post('/api/image', auth, async (req, res) => {
   }
 });
 
+// DELETE /api/images — clear ALL cached images (any authenticated user)
+app.delete('/api/images', auth, async (req, res) => {
+  const { rows } = await pool.query('DELETE FROM images RETURNING id');
+  console.log(`[image] cache cleared: ${rows.length} images deleted`);
+  res.json({ deleted: rows.length });
+});
+
+// DELETE /api/images/:entityId — clear one cached image by entity_id slug
+app.delete('/api/images/:entityId', auth, async (req, res) => {
+  const { entityId } = req.params;
+  const { rows } = await pool.query(
+    'DELETE FROM images WHERE entity_id=$1 RETURNING id',
+    [entityId]
+  );
+  console.log(`[image] cleared entity_id=${entityId} (${rows.length} row)`);
+  res.json({ deleted: rows.length });
+});
+
 // ─── GM proxy ─────────────────────────────────────────────────────────────────
 // Keeps the Anthropic API key on the server, never in the browser.
 
