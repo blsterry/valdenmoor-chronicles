@@ -123,13 +123,14 @@ export async function logEvents(events, gameMinutes, location) {
 // entityType: 'scene' | 'npc' | 'item'
 // entityId:   scene slug, npc id, item slug
 // prompt:     description (required for scene/item; ignored for npc — server builds from catalog)
-// Returns base64 PNG string or null on failure.
-export async function getImage(entityType, entityId, prompt = '') {
+// context:    { mood, location, characterDesc } — extra detail for richer scene prompts
+// Returns full data URL string or null on failure.
+export async function getImage(entityType, entityId, prompt = '', context = {}) {
   try {
     const res = await fetch(`${BASE}/api/image`, {
       method: 'POST',
       headers: authHeaders(),
-      body: JSON.stringify({ entityType, entityId, prompt }),
+      body: JSON.stringify({ entityType, entityId, prompt, context }),
     });
     if (!res.ok) return null;
     const data = await res.json();

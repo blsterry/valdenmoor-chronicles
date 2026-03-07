@@ -354,7 +354,16 @@ app.post('/api/fast-travel', auth, async (req, res) => {
 // Generates images via Gemini and caches them globally in the DB.
 // Images are entity-scoped (scene/npc/item) and shared across all users.
 
-const IMAGE_STYLE = 'Dark medieval fantasy, painterly oil painting, atmospheric lighting, muted earth tones with warm candlelight or cold moonlight, cinematic composition, highly detailed. No text, no watermarks, no borders, no frames.';
+const IMAGE_STYLE = 'Dark medieval fantasy oil painting. Painterly brushwork, muted earth tones, cinematic composition, highly detailed. No text, no UI, no watermarks, no borders, no frames.';
+
+const MOOD_LIGHTING = {
+  tense:     'high drama, deep contrast, harsh raking shadows',
+  calm:      'soft diffused light, peaceful warm atmosphere',
+  mysterious:'eerie chiaroscuro, mist and shadow, muted cold palette',
+  combat:    'chaos and motion blur, fire and clashing steel, dark sky',
+  discovery: 'golden hour light, shafts of light, wonder and awe',
+  social:    'warm firelit interior, intimate low candlelight',
+};
 
 // Diagnostic: list available Gemini models (no auth needed, read-only)
 app.get('/api/image-diag', async (req, res) => {
@@ -370,7 +379,7 @@ app.get('/api/image-diag', async (req, res) => {
 });
 
 app.post('/api/image', auth, async (req, res) => {
-  const { entityType, entityId, prompt } = req.body;
+  const { entityType, entityId, prompt, context = {} } = req.body;
   if (!entityType || !entityId) return res.status(400).json({ error: 'entityType and entityId required' });
 
   // Return cached image if available (stored as full data URL)
@@ -389,7 +398,18 @@ app.post('/api/image', auth, async (req, res) => {
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
     fullPrompt = `${IMAGE_STYLE} Character portrait, upper body. ${npc.name}, ${npc.role}. ${npc.physicalDescription} Facing viewer, expressive, medieval costume.`;
   } else {
-    fullPrompt = `${IMAGE_STYLE} ${prompt}`;
+    // Assemble a rich composite prompt from the GM's scene description + context
+    const moodNote   = MOOD_LIGHTING[context.mood] || '';
+    const locNote    = context.location ? context.location.replace(/_/g, ' ') : '';
+    const charNote   = context.characterDesc || '';
+    const parts = [
+      IMAGE_STYLE,
+      prompt,                           // GM's detailed scene description (40-60 words)
+      moodNote,
+      locNote   ? `Setting: ${locNote}` : '',
+      charNote  ? `Main character: ${charNote}` : '',
+    ].filter(Boolean);
+    fullPrompt = parts.join('. ');
   }
 
   try {
@@ -735,7 +755,7 @@ CORE RULES:
 
 1. STATS: STR=melee/intimidate, DEX=stealth/ranged, INT=magic/lore, WIS=perception/survival, CON=hp/endurance, CHA=persuasion/trade
 2. MYSTERY: Reward investigation. Information has cost. Not all is freely given.
-3. SCENE IMAGE: Each response must include a "scenePrompt" — 8-12 words describing the visual scene.
+3. SCENE IMAGE: Each response must include a "scenePrompt" — a 40-60 word image-generator prompt written in comma-separated visual noun phrases (not prose sentences). Be specific and concrete. Always include: exact light source (tallow candle, pale moonlight, overcast dawn), specific surface textures and materials (muddy cobblestone, cracked plaster, weathered oak), what the player character is doing or facing, up to 2 NPCs if present with one brief physical detail each, dominant atmosphere. Example: "candlelit stone inn common room, low smoke-stained beams, three rough men at oak bar with tankards, stout gray-haired woman innkeeper watching from shadows, tallow candles dripping, wet wool smell implied by dim oppressive warmth"
 
 WRITING STYLE — CRITICAL:
 Write like Guy Gavriel Kay: grounded, specific, atmospheric without being overwrought. No purple prose. No florid metaphors. Sentences earn their length. Details are chosen, not accumulated.
