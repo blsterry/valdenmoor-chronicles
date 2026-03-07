@@ -472,6 +472,26 @@ export default function Game({ user, onLogout, onAdmin }) {
     setTimeout(() => setNotification(null), duration);
   }, []);
 
+  const fetchSceneImage = useCallback((scenePrompt, sceneKey) => {
+    if (!scenePrompt || !sceneKey) return;
+    const tag = `scene:${sceneKey}`;
+    if (imageGenerating.current.has(tag)) return;
+    imageGenerating.current.add(tag);
+    getImage('scene', sceneKey, scenePrompt)
+      .then(data => { if (data) setSceneImages(prev => ({ ...prev, [sceneKey]: data })); })
+      .finally(() => imageGenerating.current.delete(tag));
+  }, []);
+
+  const fetchNpcPortrait = useCallback((npcId) => {
+    if (!npcId) return;
+    const tag = `npc:${npcId}`;
+    if (imageGenerating.current.has(tag)) return;
+    imageGenerating.current.add(tag);
+    getImage('npc', npcId, '')
+      .then(data => { if (data) setNpcPortraits(prev => ({ ...prev, [npcId]: data })); })
+      .finally(() => imageGenerating.current.delete(tag));
+  }, []);
+
   // Load save and NPC states from server on mount
   useEffect(() => {
     Promise.all([loadSave(), loadNpcStates()]).then(([saved, npcData]) => {
@@ -496,26 +516,6 @@ export default function Game({ user, onLogout, onAdmin }) {
       onLogout();
     });
   }, [onLogout, fetchSceneImage, fetchNpcPortrait]);
-
-  const fetchSceneImage = useCallback((scenePrompt, sceneKey) => {
-    if (!scenePrompt || !sceneKey) return;
-    const tag = `scene:${sceneKey}`;
-    if (imageGenerating.current.has(tag)) return;
-    imageGenerating.current.add(tag);
-    getImage('scene', sceneKey, scenePrompt)
-      .then(data => { if (data) setSceneImages(prev => ({ ...prev, [sceneKey]: data })); })
-      .finally(() => imageGenerating.current.delete(tag));
-  }, []);
-
-  const fetchNpcPortrait = useCallback((npcId) => {
-    if (!npcId) return;
-    const tag = `npc:${npcId}`;
-    if (imageGenerating.current.has(tag)) return;
-    imageGenerating.current.add(tag);
-    getImage('npc', npcId, '')
-      .then(data => { if (data) setNpcPortraits(prev => ({ ...prev, [npcId]: data })); })
-      .finally(() => imageGenerating.current.delete(tag));
-  }, []);
 
   const persistSave = useCallback(async (char, msgs, dlog, m, opts, scene) => {
     try {
