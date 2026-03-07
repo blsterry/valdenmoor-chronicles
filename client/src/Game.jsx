@@ -365,11 +365,11 @@ function SceneIllustration({ prompt, mood }) {
 function StatBar({ label, value, max, color }) {
   return (
     <div style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
-      <span style={{fontSize:'0.68rem',color:'#6a5a4a',width:'18px',textAlign:'right'}}>{label}</span>
-      <div style={{width:'70px',height:'5px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',overflow:'hidden'}}>
+      <span style={{fontSize:'0.8rem',color:'#6a5a4a',width:'22px',textAlign:'right'}}>{label}</span>
+      <div style={{width:'90px',height:'7px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',overflow:'hidden'}}>
         <div style={{width:`${Math.max(0,Math.min(100,(value/max)*100))}%`,height:'100%',background:color,transition:'width 0.5s',borderRadius:'3px'}}/>
       </div>
-      <span style={{fontSize:'0.68rem',color:'#6a5a4a',minWidth:'40px'}}>{value}/{max}</span>
+      <span style={{fontSize:'0.8rem',color:'#6a5a4a',minWidth:'50px'}}>{value}/{max}</span>
     </div>
   );
 }
@@ -377,11 +377,11 @@ function StatBar({ label, value, max, color }) {
 function XPBar({ value, max, color }) {
   return (
     <div style={{display:'flex',alignItems:'center',gap:'0.4rem'}}>
-      <span style={{fontSize:'0.68rem',color:'#6a5a4a',width:'18px',textAlign:'right'}}>XP</span>
-      <div style={{width:'70px',height:'5px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',overflow:'hidden'}}>
+      <span style={{fontSize:'0.8rem',color:'#6a5a4a',width:'22px',textAlign:'right'}}>XP</span>
+      <div style={{width:'90px',height:'7px',background:'rgba(255,255,255,0.08)',borderRadius:'3px',overflow:'hidden'}}>
         <div style={{width:`${Math.max(0,Math.min(100,(value/max)*100))}%`,height:'100%',background:color,transition:'width 0.5s',borderRadius:'3px'}}/>
       </div>
-      <span style={{fontSize:'0.68rem',color:'#6a5a4a',minWidth:'54px'}}>{value}/{max} xp</span>
+      <span style={{fontSize:'0.8rem',color:'#6a5a4a',minWidth:'66px'}}>{value}/{max} xp</span>
     </div>
   );
 }
@@ -408,7 +408,7 @@ function Notification({ notification }) {
 
 function PanelButton({ icon, label, active, onClick }) {
   return (
-    <button onClick={onClick} style={{background:active?'rgba(201,169,110,0.25)':'transparent',border:`1px solid ${active?'rgba(201,169,110,0.7)':'rgba(201,169,110,0.3)'}`,color:active?'#e8c87a':'#8a7a5a',padding:'0.2rem 0.5rem',cursor:'pointer',fontSize:'0.7rem',fontFamily:'Georgia, serif',transition:'all 0.15s'}}>
+    <button onClick={onClick} style={{background:active?'rgba(201,169,110,0.25)':'transparent',border:`1px solid ${active?'rgba(201,169,110,0.7)':'rgba(201,169,110,0.3)'}`,color:active?'#e8c87a':'#8a7a5a',padding:'0.3rem 0.7rem',cursor:'pointer',fontSize:'0.82rem',fontFamily:'Georgia, serif',transition:'all 0.15s'}}>
       {icon} {label}
     </button>
   );
@@ -944,7 +944,8 @@ export default function Game({ user, onLogout, onAdmin }) {
       panelBg: 'rgba(210,185,145,0.97)',
       panelBorder: 'rgba(100,70,30,0.25)',
       logEntryBg: 'rgba(180,150,100,0.12)',
-      inputBg: 'rgba(170,145,95,0.75)',
+      inputBg: 'rgba(195,168,112,0.99)',
+      inputBorder: 'rgba(100,70,30,0.65)',
       footerBg: 'rgba(180,155,105,0.7)',
       textMain: '#1a0e04',
       textMuted: '#5a3a1a',
@@ -960,6 +961,7 @@ export default function Game({ user, onLogout, onAdmin }) {
       panelBorder: 'rgba(201,169,110,0.2)',
       logEntryBg: 'rgba(0,0,0,0.2)',
       inputBg: 'rgba(0,0,0,0.6)',
+      inputBorder: 'rgba(201,169,110,0.2)',
       footerBg: 'rgba(0,0,0,0.4)',
       textMain: '#d4c4a0',
       textMuted: '#6a5a4a',
@@ -1004,24 +1006,24 @@ export default function Game({ user, onLogout, onAdmin }) {
         )}
 
         {/* HEADER */}
-        <div style={{background:pal.headerBg,backdropFilter:'blur(4px)',borderBottom:`1px solid ${pal.headerBorder}`,padding:'0.5rem 0.75rem',display:'flex',flexDirection:'column',gap:'0.4rem',position:'sticky',top:0,zIndex:100}}>
+        <div style={{background:pal.headerBg,backdropFilter:'blur(4px)',borderBottom:`1px solid ${pal.headerBorder}`,padding:'0.65rem 1rem',display:'flex',flexDirection:'column',gap:'0.45rem',position:'sticky',top:0,zIndex:100}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'0.4rem'}}>
             <div>
-              <span style={{color:pal.textAccent,fontSize:'0.95rem'}}>{character.name}</span>
-              <span style={{color:pal.textMuted,fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
-              <span style={{color:pal.textMuted,fontSize:'0.75rem'}}>Lv {character.level}</span>
-              <span style={{color:pal.textMuted,fontSize:'0.75rem',margin:'0 0.5rem'}}>·</span>
-              <span style={{color:pal.textMuted,fontSize:'0.7rem',fontStyle:'italic'}}>
+              <span style={{color:pal.textAccent,fontSize:'1.1rem'}}>{character.name}</span>
+              <span style={{color:pal.textMuted,fontSize:'0.88rem',margin:'0 0.5rem'}}>·</span>
+              <span style={{color:pal.textMuted,fontSize:'0.88rem'}}>Lv {character.level}</span>
+              <span style={{color:pal.textMuted,fontSize:'0.88rem',margin:'0 0.5rem'}}>·</span>
+              <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
                 {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
               </span>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
-              <span style={{color:pal.textAccent,fontSize:'0.8rem'}}>💰 {character.gold}g</span>
-              {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:pal.textMuted,cursor:'pointer',fontSize:'0.6rem',fontFamily:'Georgia, serif'}}>admin</button>}
+              <span style={{color:pal.textAccent,fontSize:'0.92rem'}}>💰 {character.gold}g</span>
+              {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:pal.textMuted,cursor:'pointer',fontSize:'0.65rem',fontFamily:'Georgia, serif'}}>admin</button>}
               {/* Settings */}
               <div style={{position:'relative'}}>
                 <button onClick={()=>setShowSettings(p=>!p)}
-                  style={{background:showSettings?`rgba(201,169,110,0.15)`:'transparent',border:`1px solid ${showSettings?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:pal.textAccent,padding:'0.2rem 0.55rem',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif',letterSpacing:'0.05em',transition:'all 0.15s'}}>
+                  style={{background:showSettings?`rgba(201,169,110,0.15)`:'transparent',border:`1px solid ${showSettings?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:pal.textAccent,padding:'0.25rem 0.65rem',cursor:'pointer',fontSize:'0.88rem',fontFamily:'Georgia, serif',letterSpacing:'0.05em',transition:'all 0.15s'}}>
                   ⚙
                 </button>
                 {showSettings && (
@@ -1245,14 +1247,14 @@ export default function Game({ user, onLogout, onAdmin }) {
         </div>
 
         {/* INPUT */}
-        <div style={{padding:'0.5rem 0.75rem 0.6rem',background:pal.inputBg,borderTop:`1px solid ${pal.headerBorder}`}}>
+        <div style={{padding:'0.5rem 0.75rem 0.6rem',background:pal.inputBg,borderTop:`2px solid ${pal.inputBorder}`}}>
           <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
             <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
               placeholder="What do you do?"
               disabled={loading}
-              style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${pal.headerBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
+              style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${pal.inputBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
             <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()}
-              style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.headerBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+              style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.inputBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
           </div>
         </div>
 
