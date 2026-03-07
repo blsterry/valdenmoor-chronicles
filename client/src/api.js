@@ -40,6 +40,18 @@ export function getCurrentUser() {
   catch { return null; }
 }
 
+// Self-service password change — requires current password for verification
+export async function changePassword(oldPassword, newPassword) {
+  const res = await fetch(`${BASE}/api/user/password`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ oldPassword, newPassword }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Password change failed');
+  return data;
+}
+
 // ─── Save ────────────────────────────────────────────────────────────────────
 
 export async function loadSave() {

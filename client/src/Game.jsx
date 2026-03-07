@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sendToGM, loadSave, writeSave, deleteSave, logout,
          loadNpcStates, updateNpcStates, fastTravel, logEvents, getImage,
-         clearAllImages, clearSceneImage } from './api.js';
+         clearAllImages, clearSceneImage, changePassword } from './api.js';
 import WorldMap from './WorldMap.jsx';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -459,6 +459,9 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [showMap, setShowMap]         = useState(false);
   const [showSettings, setShowSettings]   = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [showChangePw, setShowChangePw]   = useState(false);
+  const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
+  const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
   const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
   const [tempGender, setTempGender]       = useState('they');
   const [tempBackstory, setTempBackstory] = useState('');
@@ -1076,6 +1079,65 @@ export default function Game({ user, onLogout, onAdmin }) {
           </div>
         )}
 
+        {/* CHANGE PASSWORD MODAL */}
+        {showChangePw && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+            <div style={{maxWidth:'360px',width:'100%',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,padding:'1.5rem 1.75rem',fontFamily:'Georgia, serif'}}>
+              <div style={{color:pal.textAccent,fontSize:'0.75rem',letterSpacing:'0.15em',marginBottom:'1.25rem'}}>CHANGE PASSWORD</div>
+              <div style={{color:pal.textMuted,fontSize:'0.65rem',marginBottom:'1rem'}}>
+                Min. 6 characters · no spaces
+              </div>
+              {[
+                ['CURRENT PASSWORD', 'old', 'current-password'],
+                ['NEW PASSWORD', 'new1', 'new-password'],
+                ['CONFIRM NEW PASSWORD', 'new2', 'new-password'],
+              ].map(([label, key, ac]) => (
+                <div key={key}>
+                  <div style={{color:pal.textMuted,fontSize:'0.6rem',letterSpacing:'0.1em',marginBottom:'0.25rem'}}>{label}</div>
+                  <input
+                    type="password"
+                    autoComplete={ac}
+                    value={changePwForm[key]}
+                    onChange={e => setChangePwForm(p => ({...p, [key]: e.target.value}))}
+                    style={{width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${pal.settingsBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.9rem',padding:'0.3rem 0.15rem',outline:'none',marginBottom:'1rem',boxSizing:'border-box'}}
+                  />
+                </div>
+              ))}
+              {changePwMsg.text && (
+                <div style={{fontSize:'0.75rem',marginBottom:'0.75rem',color: changePwMsg.ok ? '#4caf7a' : '#c94a4a'}}>
+                  {changePwMsg.text}
+                </div>
+              )}
+              <div style={{display:'flex',gap:'0.75rem',justifyContent:'flex-end',marginTop:'0.25rem'}}>
+                <button
+                  onClick={() => { setShowChangePw(false); }}
+                  style={{background:'transparent',border:`1px solid ${pal.settingsBorder}`,color:pal.textMuted,padding:'0.45rem 1.1rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.82rem'}}
+                >Cancel</button>
+                <button
+                  disabled={!changePwForm.old || changePwForm.new1.length < 6 || changePwForm.new1 !== changePwForm.new2}
+                  onClick={async () => {
+                    if (changePwForm.new1 !== changePwForm.new2) {
+                      setChangePwMsg({ text: 'New passwords do not match.', ok: false });
+                      return;
+                    }
+                    try {
+                      await changePassword(changePwForm.old, changePwForm.new1);
+                      setChangePwMsg({ text: 'Password updated successfully.', ok: true });
+                      setChangePwForm({ old: '', new1: '', new2: '' });
+                      setTimeout(() => setShowChangePw(false), 1500);
+                    } catch (e) {
+                      setChangePwMsg({ text: e.message, ok: false });
+                    }
+                  }}
+                  style={{background:'rgba(201,169,110,0.15)',border:`1px solid rgba(201,169,110,0.5)`,color:'#c9a96e',padding:'0.45rem 1.1rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.82rem',transition:'all 0.15s'}}
+                  onMouseOver={e=>e.currentTarget.style.background='rgba(201,169,110,0.28)'}
+                  onMouseOut={e=>e.currentTarget.style.background='rgba(201,169,110,0.15)'}
+                >Update Password</button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* HOW TO PLAY MODAL */}
         {showHowToPlay && (
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
@@ -1122,6 +1184,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                     {[
                       [lightMode ? '☾ Dark Mode' : '☀ Light Mode', toggleLightMode],
                       ['? How to Play', ()=>{setShowHowToPlay(true);setShowSettings(false);}],
+                      ['🔑 Change Password', ()=>{setChangePwForm({old:'',new1:'',new2:''});setChangePwMsg({text:'',ok:false});setShowChangePw(true);setShowSettings(false);}],
                       ['↺ Start Over', ()=>{setShowSettings(false);handleNewGame();}],
                       ['→ Sign Out', ()=>{setShowSettings(false);onLogout();}],
                     ].map(([label, fn])=>(

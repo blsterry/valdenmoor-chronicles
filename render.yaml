@@ -9,6 +9,8 @@ services:
         value: production
       - key: ANTHROPIC_API_KEY
         sync: false          # Set this manually in Render dashboard
+      - key: GEMINI_API_KEY
+        sync: false          # Set this manually in Render dashboard
       - key: JWT_SECRET
         generateValue: true  # Render auto-generates a secure random value
       - key: DATABASE_URL

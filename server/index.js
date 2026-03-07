@@ -98,6 +98,28 @@ app.delete('/api/admin/users/:id', adminAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Self-service password change — requires old password for verification
+app.patch('/api/user/password', auth, async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (!oldPassword || !newPassword)
+    return res.status(400).json({ error: 'Old and new password required' });
+  if (newPassword.length < 6)
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (/\s/.test(newPassword))
+    return res.status(400).json({ error: 'Password cannot contain spaces' });
+  try {
+    const { rows } = await pool.query('SELECT password FROM users WHERE id = $1', [req.user.id]);
+    if (!rows[0] || !await bcrypt.compare(oldPassword, rows[0].password))
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.user.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.patch('/api/admin/users/:id/password', adminAuth, async (req, res) => {
   const { password } = req.body;
   if (!password || password.length < 6)
@@ -366,14 +388,17 @@ const MOOD_LIGHTING = {
   social:    'warm firelit interior, intimate low candlelight',
 };
 
-// Diagnostic: list available Gemini models (no auth needed, read-only)
+// Diagnostic: list available Gemini models, separated by capability
 app.get('/api/image-diag', async (req, res) => {
   if (!process.env.GEMINI_API_KEY) return res.json({ error: 'No GEMINI_API_KEY set' });
   try {
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${process.env.GEMINI_API_KEY}&pageSize=100`);
     const data = await r.json();
-    const models = (data.models || []).map(m => ({ name: m.name, methods: m.supportedGenerationMethods }));
-    res.json({ keyStatus: r.status, totalModels: models.length, models });
+    const all = (data.models || []).map(m => ({ name: m.name, methods: m.supportedGenerationMethods }));
+    const textModels   = all.filter(m => m.methods?.includes('generateContent'));
+    const imageModels  = all.filter(m => m.methods?.includes('predict'));
+    const embedModels  = all.filter(m => !m.methods?.includes('generateContent') && !m.methods?.includes('predict'));
+    res.json({ keyStatus: r.status, total: all.length, textModels, imageModels, embedModels });
   } catch (e) {
     res.json({ error: e.message });
   }
@@ -405,15 +430,15 @@ app.post('/api/image', auth, async (req, res) => {
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
     fullPrompt = `${npc.name}, ${npc.role}, ${npc.physicalDescription}, character portrait upper body, facing viewer, expressive face, medieval costume. ${IMAGE_STYLE_SUFFIX}`;
   } else {
-    // ── Extract scene details from the narrative via Claude Haiku ───────────
-    // Gemini text models 404 on this key. We already have ANTHROPIC_API_KEY
-    // for the GM — use claude-haiku for fast, cheap extraction.
-    // Player character is intentionally excluded from the image prompt so the
-    // image focuses on the environment and NPCs rather than a generic avatar.
+    // ── Extract scene details from the narrative via Gemini text model ───────
+    // We call generateContent with NO responseModalities (text-only output).
+    // This is separate from the image generation step that uses imagen/predict.
+    // Player character is intentionally excluded so the image focuses on the
+    // environment and NPCs rather than a generic avatar.
     let sceneDesc = prompt || '';
     let extractionSucceeded = false;
 
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (process.env.GEMINI_API_KEY) {
       const narrative = (context.narrative || '').slice(0, 700);
       const loc       = (context.location || '').replace(/_/g, ' ') || 'unknown location';
       const mood      = context.mood || 'mysterious';
@@ -439,36 +464,48 @@ Do NOT include the player character or any generic human figure.
 No redundancy — every phrase must add new visual information.
 Output ONLY the comma-separated noun phrases, nothing else.`;
 
-      try {
-        const r = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': process.env.ANTHROPIC_API_KEY,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5',
-            max_tokens: 150,
-            messages: [{ role: 'user', content: extractText }],
-          }),
-        });
-        if (r.ok) {
+      // Try stable model names first, then aliases.
+      // These all use the standard text generateContent endpoint (no image modalities).
+      const GEMINI_TEXT_MODELS = [
+        'gemini-2.0-flash-001',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash-001',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro-001',
+        'gemini-1.5-pro',
+      ];
+
+      for (const model of GEMINI_TEXT_MODELS) {
+        if (extractionSucceeded) break;
+        try {
+          const r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: extractText }] }],
+                generationConfig: { maxOutputTokens: 150, temperature: 0.3 },
+              }),
+            }
+          );
+          if (!r.ok) {
+            const err = await r.text();
+            console.log(`[image] extraction ${model} HTTP ${r.status}: ${err.slice(0, 100)}`);
+            continue;
+          }
           const d = await r.json();
-          const extracted = d.content?.[0]?.text?.trim();
+          const extracted = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
           if (extracted && extracted.split(/\s+/).length > 12) {
-            console.log(`[image] extracted (${extracted.split(/\s+/).length}w): ${extracted.slice(0, 150)}`);
+            console.log(`[image] extracted via ${model} (${extracted.split(/\s+/).length}w): ${extracted.slice(0, 150)}`);
             sceneDesc = extracted;
             extractionSucceeded = true;
           } else {
-            console.log(`[image] extraction too short: "${extracted}" — using GM prompt`);
+            console.log(`[image] extraction ${model} too short: "${extracted?.slice(0, 80)}" — trying next`);
           }
-        } else {
-          const err = await r.text();
-          console.log(`[image] extraction HTTP ${r.status}: ${err.slice(0, 120)}`);
+        } catch (e) {
+          console.log(`[image] extraction ${model} error: ${e.message}`);
         }
-      } catch (e) {
-        console.log(`[image] extraction error: ${e.message} — using GM prompt`);
       }
     }
 
@@ -668,6 +705,28 @@ if (process.env.NODE_ENV === 'production') {
 
 async function runMigrations() {
   try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id         SERIAL PRIMARY KEY,
+        username   TEXT UNIQUE NOT NULL,
+        password   TEXT NOT NULL,
+        is_admin   BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS saves (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+        character   JSONB,
+        messages    JSONB,
+        display_log JSONB,
+        mood        TEXT,
+        options     JSONB,
+        scene       TEXT,
+        updated_at  TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
     await pool.query(`
       CREATE TABLE IF NOT EXISTS npc_states (
         id                 SERIAL PRIMARY KEY,
