@@ -354,12 +354,8 @@ app.post('/api/fast-travel', auth, async (req, res) => {
 // Generates images via Gemini and caches them globally in the DB.
 // Images are entity-scoped (scene/npc/item) and shared across all users.
 
-// Style suffix — kept minimal so scene content dominates the prompt budget.
+// Style suffix — under 10 words so scene content dominates the prompt budget.
 const IMAGE_STYLE_SUFFIX = 'dark medieval fantasy, oil painting, no text, no watermarks';
-
-// Text models to try for scene extraction, in preference order.
-// 'gemini-2.0-flash' (no suffix) returns 404 — must use versioned names.
-const EXTRACT_MODELS = ['gemini-2.0-flash-exp', 'gemini-1.5-flash-latest', 'gemini-1.5-flash'];
 
 const MOOD_LIGHTING = {
   tense:     'high drama, deep contrast, harsh raking shadows',
@@ -409,80 +405,80 @@ app.post('/api/image', auth, async (req, res) => {
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
     fullPrompt = `${npc.name}, ${npc.role}, ${npc.physicalDescription}, character portrait upper body, facing viewer, expressive face, medieval costume. ${IMAGE_STYLE_SUFFIX}`;
   } else {
-    // ── Extract scene details from the narrative via a Gemini text call ────────
-    // The GM's scenePrompt is a short hint — we derive the real image prompt
-    // from the narrative text, which contains the actual visual details.
+    // ── Extract scene details from the narrative via Claude Haiku ───────────
+    // Gemini text models 404 on this key. We already have ANTHROPIC_API_KEY
+    // for the GM — use claude-haiku for fast, cheap extraction.
+    // Player character is intentionally excluded from the image prompt so the
+    // image focuses on the environment and NPCs rather than a generic avatar.
     let sceneDesc = prompt || '';
     let extractionSucceeded = false;
 
-    if (process.env.GEMINI_API_KEY) {
+    if (process.env.ANTHROPIC_API_KEY) {
       const narrative = (context.narrative || '').slice(0, 700);
       const loc       = (context.location || '').replace(/_/g, ' ') || 'unknown location';
-      const char      = context.characterDesc || 'a traveler';
       const mood      = context.mood || 'mysterious';
 
       const extractText = `You write image generation prompts for a dark medieval fantasy RPG.
 
-SCENE NARRATIVE (the authoritative source — use details from here):
+SCENE NARRATIVE — this is the primary source, pull details from here:
 "${narrative}"
 
-GM hint (may be vague or short): "${sceneDesc}"
-Location: ${loc} | Character: ${char} | Mood: ${mood}
+GM note (may be vague): "${sceneDesc}"
+Location: ${loc} | Mood: ${mood}
 
-Write a 40-50 word image prompt as comma-separated noun phrases. No sentences. No style words (no "oil painting", "fantasy", "detailed").
+Write a 35-45 word image prompt as comma-separated noun phrases only. No sentences. No style words (no "oil painting", "fantasy", "detailed", "cinematic").
 
-Include ONLY these elements, each on one phrase — skip any that aren't in the narrative:
-- Time of day and light source (e.g. "gathering dusk", "single guttering tallow candle", "pale moonlight through cracked shutters")
-- The specific setting with one texture detail (e.g. "four dirt roads converging at stone crossroads", "low-ceilinged inn common room with smoke-stained beams")
-- 2 distinct objects actually mentioned (e.g. "weathered wooden noticeboard papers fluttering", "carved stone shrine faces worn smooth by rain")
-- Character's action (e.g. "lone traveler standing before shrine looking toward inn")
-- Any NPC present and their action — omit entirely if no NPC in narrative
-- One atmosphere detail (e.g. "woodsmoke on cool evening air", "distant voices muffled by thick walls")
+Extract only what is described in the narrative, in this priority order:
+1. Setting + time of day ("four dirt roads at dusk", "low-ceilinged inn at night")
+2. Exact light source ("warm lantern glow from inn windows", "guttering tallow candle on bar")
+3. 2-3 specific objects or features actually mentioned ("weathered stone shrine carved saint faces worn smooth", "wooden noticeboard papers fluttering in breeze")
+4. Any NPCs present + what they are doing — omit if none in narrative
+5. One atmosphere detail ("woodsmoke drifting", "dead silence", "cold evening air")
 
-No redundancy — each phrase adds new information. If a detail wasn't in the narrative, infer only what the setting and time of day logically imply.
-Output ONLY the comma-separated phrases.`;
+Do NOT include the player character or any generic human figure.
+No redundancy — every phrase must add new visual information.
+Output ONLY the comma-separated noun phrases, nothing else.`;
 
-      const extractBody = {
-        contents: [{ parts: [{ text: extractText }] }],
-        generationConfig: { temperature: 0.3, maxOutputTokens: 130 },
-      };
-
-      for (const model of EXTRACT_MODELS) {
-        try {
-          const r = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(extractBody) }
-          );
-          if (r.ok) {
-            const d = await r.json();
-            const extracted = d.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-            if (extracted && extracted.split(/\s+/).length > 15) {
-              console.log(`[image] extracted via ${model} (${extracted.split(/\s+/).length}w): ${extracted.slice(0, 140)}`);
-              sceneDesc = extracted;
-              extractionSucceeded = true;
-              break;
-            } else {
-              console.log(`[image] ${model} returned too short: "${extracted}"`);
-            }
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': process.env.ANTHROPIC_API_KEY,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5',
+            max_tokens: 150,
+            messages: [{ role: 'user', content: extractText }],
+          }),
+        });
+        if (r.ok) {
+          const d = await r.json();
+          const extracted = d.content?.[0]?.text?.trim();
+          if (extracted && extracted.split(/\s+/).length > 12) {
+            console.log(`[image] extracted (${extracted.split(/\s+/).length}w): ${extracted.slice(0, 150)}`);
+            sceneDesc = extracted;
+            extractionSucceeded = true;
           } else {
-            console.log(`[image] ${model} HTTP ${r.status}`);
+            console.log(`[image] extraction too short: "${extracted}" — using GM prompt`);
           }
-        } catch (e) {
-          console.log(`[image] ${model} error: ${e.message}`);
+        } else {
+          const err = await r.text();
+          console.log(`[image] extraction HTTP ${r.status}: ${err.slice(0, 120)}`);
         }
+      } catch (e) {
+        console.log(`[image] extraction error: ${e.message} — using GM prompt`);
       }
-      if (!extractionSucceeded) console.log('[image] all extraction models failed — using GM prompt as-is');
     }
 
-    // When extraction succeeded: scene desc already contains all context, append only brief style.
-    // When extraction failed: pad with mood/location/character as fallback context.
+    // Extraction succeeded: scene description already contains all context.
+    // Extraction failed: fall back to GM hint + mood note + style.
     if (extractionSucceeded) {
       fullPrompt = `${sceneDesc}, ${IMAGE_STYLE_SUFFIX}`;
     } else {
       const moodNote = MOOD_LIGHTING[context.mood] || '';
-      const locNote  = context.location ? context.location.replace(/_/g, ' ') : '';
-      const charNote = context.characterDesc || '';
-      fullPrompt = [sceneDesc, moodNote, locNote, charNote, IMAGE_STYLE_SUFFIX].filter(Boolean).join(', ');
+      fullPrompt = [sceneDesc, moodNote, IMAGE_STYLE_SUFFIX].filter(Boolean).join(', ');
     }
   }
 
