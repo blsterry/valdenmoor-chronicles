@@ -395,9 +395,54 @@ app.post('/api/image', auth, async (req, res) => {
   try {
     // imageData is stored/returned as a full data URL: "data:image/TYPE;base64,..."
     let imageDataUrl = null;
+    const aspectRatio = isPortrait ? '1:1' : '16:9';
 
-    // ── 1. Pollinations.ai — free, no API key required ──────────────────────
-    {
+    // ── 1. Imagen 4 Fast (dedicated image model, predict endpoint) ───────────
+    if (!imageDataUrl && process.env.GEMINI_API_KEY) {
+      try {
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instances: [{ prompt: fullPrompt }], parameters: { sampleCount: 1, aspectRatio } }) }
+        );
+        if (r.ok) {
+          const data = await r.json();
+          const b64 = data.predictions?.[0]?.bytesBase64Encoded;
+          if (b64) {
+            imageDataUrl = `data:image/png;base64,${b64}`;
+            console.log(`[image] imagen-4.0-fast OK: ${entityType}/${entityId} (${Math.round(b64.length / 1024)}KB)`);
+          }
+        } else {
+          const err = await r.text();
+          console.log(`[image] imagen-4.0-fast HTTP ${r.status}: ${err.slice(0, 200)}`);
+        }
+      } catch (e) { console.log(`[image] imagen-4.0-fast error: ${e.message}`); }
+    }
+
+    // ── 2. Gemini image models (generateContent endpoint) ────────────────────
+    if (!imageDataUrl && process.env.GEMINI_API_KEY) {
+      const geminiModels = ['gemini-2.0-flash-exp-image-generation', 'gemini-2.5-flash-image'];
+      for (const name of geminiModels) {
+        if (imageDataUrl) break;
+        try {
+          const r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }) }
+          );
+          if (!r.ok) { const err = await r.text(); console.log(`[image] ${name} HTTP ${r.status}: ${err.slice(0, 200)}`); continue; }
+          const data = await r.json();
+          const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+          if (part?.inlineData?.data) {
+            imageDataUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+            console.log(`[image] ${name} OK: ${entityType}/${entityId}`);
+          } else { console.log(`[image] ${name} HTTP 200 but no image part`); }
+        } catch (e) { console.log(`[image] ${name} error: ${e.message}`); }
+      }
+    }
+
+    // ── 3. Pollinations.ai fallback — free, no API key required ─────────────
+    if (!imageDataUrl) {
       const w = isPortrait ? 512 : 832;
       const h = isPortrait ? 512 : 468;
       const seed = Math.floor(Math.random() * 99999);
@@ -412,36 +457,8 @@ app.post('/api/image', auth, async (req, res) => {
           const b64 = Buffer.from(buf).toString('base64');
           imageDataUrl = `data:image/jpeg;base64,${b64}`;
           console.log(`[image] pollinations OK: ${entityType}/${entityId} (${Math.round(b64.length / 1024)}KB)`);
-        } else {
-          console.log(`[image] pollinations HTTP ${r.status}`);
-        }
-      } catch (e) {
-        console.log(`[image] pollinations error: ${e.message}`);
-      }
-    }
-
-    // ── 2. Fallback: Gemini/Imagen (requires paid Google AI plan) ───────────
-    if (!imageDataUrl && process.env.GEMINI_API_KEY) {
-      const aspectRatio = isPortrait ? '1:1' : '16:9';
-      const geminiModels = ['gemini-2.0-flash-exp-image-generation', 'gemini-2.5-flash-image'];
-      for (const name of geminiModels) {
-        if (imageDataUrl) break;
-        try {
-          const r = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-            { method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }) }
-          );
-          if (!r.ok) { console.log(`[image] ${name} HTTP ${r.status}`); continue; }
-          const data = await r.json();
-          const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
-          if (part?.inlineData?.data) {
-            const mime = part.inlineData.mimeType;
-            imageDataUrl = `data:${mime};base64,${part.inlineData.data}`;
-            console.log(`[image] ${name} OK: ${entityType}/${entityId}`);
-          }
-        } catch (e) { console.log(`[image] ${name} error: ${e.message}`); }
-      }
+        } else { console.log(`[image] pollinations HTTP ${r.status}`); }
+      } catch (e) { console.log(`[image] pollinations error: ${e.message}`); }
     }
 
     if (!imageDataUrl) {
