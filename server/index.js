@@ -382,12 +382,18 @@ app.post('/api/image', auth, async (req, res) => {
   const { entityType, entityId, prompt, context = {} } = req.body;
   if (!entityType || !entityId) return res.status(400).json({ error: 'entityType and entityId required' });
 
-  // Return cached image if available (stored as full data URL)
+  console.log(`[image] request: ${entityType}/${entityId.slice(0, 80)}`);
+  console.log(`[image] raw GM scenePrompt: ${prompt}`);
+
+  // Return cached image if available (also return the prompt that was used, for debugging)
   const { rows } = await pool.query(
-    'SELECT image_data FROM images WHERE entity_type=$1 AND entity_id=$2',
+    'SELECT image_data, prompt FROM images WHERE entity_type=$1 AND entity_id=$2',
     [entityType, entityId]
   );
-  if (rows.length > 0) return res.json({ imageData: rows[0].image_data, cached: true });
+  if (rows.length > 0) {
+    console.log(`[image] CACHE HIT — promptUsed: ${rows[0].prompt.slice(0, 120)}`);
+    return res.json({ imageData: rows[0].image_data, promptUsed: rows[0].prompt, cached: true });
+  }
 
   // Build prompt
   let fullPrompt;
@@ -411,6 +417,8 @@ app.post('/api/image', auth, async (req, res) => {
     ].filter(Boolean);
     fullPrompt = parts.join('. ');
   }
+
+  console.log(`[image] GENERATING — fullPrompt: ${fullPrompt}`);
 
   try {
     // imageData is stored/returned as a full data URL: "data:image/TYPE;base64,..."
@@ -492,7 +500,7 @@ app.post('/api/image', auth, async (req, res) => {
       [entityType, entityId, fullPrompt, imageDataUrl]
     );
 
-    res.json({ imageData: imageDataUrl, cached: false });
+    res.json({ imageData: imageDataUrl, promptUsed: fullPrompt, cached: false });
   } catch (err) {
     console.error('Image generation error:', err);
     res.status(500).json({ error: 'Server error' });

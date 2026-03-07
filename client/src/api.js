@@ -134,6 +134,9 @@ export async function getImage(entityType, entityId, prompt = '', context = {}) 
     });
     if (!res.ok) return null;
     const data = await res.json();
+    // Log so devtools shows exactly what was sent to the image model
+    console.log(`[image] ${data.cached ? 'CACHED' : 'GENERATED'} ${entityType}/${entityId.slice(0, 60)}`);
+    if (data.promptUsed) console.log('[image] promptUsed:', data.promptUsed);
     return data.imageData || null;
   } catch {
     return null;
