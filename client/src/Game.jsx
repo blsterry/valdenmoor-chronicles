@@ -472,12 +472,12 @@ export default function Game({ user, onLogout, onAdmin }) {
     setTimeout(() => setNotification(null), duration);
   }, []);
 
-  const fetchSceneImage = useCallback((scenePrompt, sceneKey) => {
+  const fetchSceneImage = useCallback((scenePrompt, sceneKey, ctx = {}) => {
     if (!scenePrompt || !sceneKey) return;
     const tag = `scene:${sceneKey}`;
     if (imageGenerating.current.has(tag)) return;
     imageGenerating.current.add(tag);
-    getImage('scene', sceneKey, scenePrompt)
+    getImage('scene', sceneKey, scenePrompt, ctx)
       .then(data => { if (data) setSceneImages(prev => ({ ...prev, [sceneKey]: data })); })
       .finally(() => imageGenerating.current.delete(tag));
   }, []);
@@ -601,8 +601,17 @@ export default function Game({ user, onLogout, onAdmin }) {
       const npcIds     = (parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
       const gmEntry    = { type: 'gm', text: parsed.narrative, scenePrompt: newScene, mood: newMood, npcIds };
 
-      // Fire-and-forget image generation
-      if (newScene) fetchSceneImage(newScene, slugifyPrompt(newScene));
+      // Fire-and-forget image generation (pass rich context for a better prompt)
+      if (newScene) {
+        const imgCtx = {
+          mood: newMood,
+          location: newChar.location,
+          characterDesc: newChar.name
+            ? `${newChar.name}, ${newChar.background || 'traveler'}, medieval clothing`
+            : '',
+        };
+        fetchSceneImage(newScene, slugifyPrompt(newScene), imgCtx);
+      }
       npcIds.forEach(id => fetchNpcPortrait(id));
 
       setMessages(newApiHistory);
@@ -648,7 +657,13 @@ export default function Game({ user, onLogout, onAdmin }) {
         const encNpcIds   = (result.parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
         const travelEntry = { type: 'player', text: `[Fast travel from ${fromLoc.replace(/_/g,' ')} to ${toLoc.replace(/_/g,' ')}]`, hidden: true };
         const gmEntry     = { type: 'gm', text: result.parsed.narrative, scenePrompt: encScene, mood: result.parsed.mood || 'tense', npcIds: encNpcIds };
-        if (encScene) fetchSceneImage(encScene, slugifyPrompt(encScene));
+        if (encScene) {
+          fetchSceneImage(encScene, slugifyPrompt(encScene), {
+            mood: result.parsed.mood || 'tense',
+            location: toLoc,
+            characterDesc: character.name ? `${character.name}, ${character.background || 'traveler'}, medieval clothing` : '',
+          });
+        }
         encNpcIds.forEach(id => fetchNpcPortrait(id));
         const newMood     = result.parsed.mood || 'tense';
         const newOptions  = result.parsed.options || [];
@@ -973,6 +988,8 @@ export default function Game({ user, onLogout, onAdmin }) {
 
     return (
       <div style={{background:pal.mainBg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:pal.textMain,transition:'background 2s ease',maxWidth:'860px',margin:'0 auto'}}>
+        {/* Placeholder color can't be set via inline styles — inject a style tag based on mode */}
+        <style>{`input::placeholder { color: ${lightMode ? 'rgba(80,52,16,0.58)' : 'rgba(180,155,110,0.5)'}; }`}</style>
         <Notification notification={notification}/>
 
         {/* WORLD MAP OVERLAY */}
