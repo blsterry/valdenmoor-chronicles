@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { sendToGM, loadSave, writeSave, deleteSave, logout,
-         loadNpcStates, updateNpcStates, fastTravel, logEvents, getImage } from './api.js';
+         loadNpcStates, updateNpcStates, fastTravel, logEvents, getImage,
+         clearAllImages, clearSceneImage } from './api.js';
 import WorldMap from './WorldMap.jsx';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -462,6 +463,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [tempQuestType, setTempQuestType] = useState('');
   const [sceneImages, setSceneImages]   = useState({});   // { sceneKey: base64png }
   const [npcPortraits, setNpcPortraits] = useState({});   // { npcId: base64png }
+  const [imgConfirm, setImgConfirm]     = useState(null); // { type: 'all'|'current' } or null
   const imageGenerating                 = useRef(new Set());
   const logEndRef = useRef(null);
 
@@ -789,6 +791,30 @@ export default function Game({ user, onLogout, onAdmin }) {
     setScreen('intro');
   };
 
+  // ─── Image cache handlers ──────────────────────────────────────────────────
+
+  const handleClearAllImages = useCallback(async () => {
+    setImgConfirm(null);
+    await clearAllImages();
+    setSceneImages({});
+    setNpcPortraits({});
+    showNotif('Image cache cleared. Images will regenerate as you play.', 'info', 4000);
+  }, [showNotif]);
+
+  const handleClearCurrentImage = useCallback(async () => {
+    setImgConfirm(null);
+    if (!currentScene) return;
+    const key = slugifyPrompt(currentScene);
+    await clearSceneImage(key);
+    setSceneImages(prev => { const n = { ...prev }; delete n[key]; return n; });
+    fetchSceneImage(currentScene, key, {
+      mood,
+      location: character?.location || '',
+      characterDesc: character?.name ? `${character.name}, ${character.background || 'traveler'}, medieval clothing` : '',
+    });
+    showNotif('Regenerating scene image...', 'info', 3000);
+  }, [currentScene, character, mood, fetchSceneImage, showNotif]);
+
   const theme = MOOD_THEMES[mood] || MOOD_THEMES.mysterious;
 
   // ─── Loading ───────────────────────────────────────────────────────────────
@@ -1002,6 +1028,36 @@ export default function Game({ user, onLogout, onAdmin }) {
           />
         )}
 
+        {/* IMAGE CACHE CONFIRMATION MODAL */}
+        {imgConfirm && (
+          <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.82)',zIndex:600,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
+            <div style={{maxWidth:'360px',width:'100%',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,padding:'1.5rem 1.75rem',fontFamily:'Georgia, serif'}}>
+              <div style={{color:'#c94a4a',fontSize:'0.72rem',letterSpacing:'0.15em',marginBottom:'1rem'}}>
+                {imgConfirm.type === 'all' ? '⚠ CLEAR ALL IMAGES' : '⚠ REFRESH SCENE IMAGE'}
+              </div>
+              <div style={{color:pal.textMain,fontSize:'0.88rem',lineHeight:'1.7',marginBottom:'1.4rem'}}>
+                {imgConfirm.type === 'all'
+                  ? 'This will delete every cached image — all scenes and NPC portraits. They will be regenerated fresh as you play, using the current prompts.'
+                  : 'This will delete the cached image for the current scene and immediately request a new one. The new image may look different.'}
+              </div>
+              <div style={{display:'flex',gap:'0.75rem'}}>
+                <button onClick={() => imgConfirm.type === 'all' ? handleClearAllImages() : handleClearCurrentImage()}
+                  style={{background:'rgba(180,50,50,0.2)',border:'1px solid rgba(180,50,50,0.7)',color:'#e07070',padding:'0.45rem 1.25rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.82rem',transition:'all 0.15s'}}
+                  onMouseOver={e=>{e.currentTarget.style.background='rgba(180,50,50,0.35)';}}
+                  onMouseOut={e=>{e.currentTarget.style.background='rgba(180,50,50,0.2)';}}>
+                  Confirm
+                </button>
+                <button onClick={() => setImgConfirm(null)}
+                  style={{background:'transparent',border:`1px solid ${pal.settingsBorder}`,color:pal.textMuted,padding:'0.45rem 1.25rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.82rem',transition:'all 0.15s'}}
+                  onMouseOver={e=>{e.currentTarget.style.background='rgba(201,169,110,0.1)';}}
+                  onMouseOut={e=>{e.currentTarget.style.background='transparent';}}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* HOW TO PLAY MODAL */}
         {showHowToPlay && (
           <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center',padding:'1rem'}}>
@@ -1044,7 +1100,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                   ⚙
                 </button>
                 {showSettings && (
-                  <div style={{position:'absolute',right:0,top:'calc(100% + 4px)',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,zIndex:300,minWidth:'160px',fontFamily:'Georgia, serif',boxShadow:'0 4px 16px rgba(0,0,0,0.5)'}}>
+                  <div style={{position:'absolute',right:0,top:'calc(100% + 4px)',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,zIndex:300,minWidth:'175px',fontFamily:'Georgia, serif',boxShadow:'0 4px 16px rgba(0,0,0,0.5)'}}>
                     {[
                       [lightMode ? '☾ Dark Mode' : '☀ Light Mode', toggleLightMode],
                       ['? How to Play', ()=>{setShowHowToPlay(true);setShowSettings(false);}],
@@ -1058,6 +1114,22 @@ export default function Game({ user, onLogout, onAdmin }) {
                         {label}
                       </button>
                     ))}
+                    {/* Image cache divider */}
+                    <div style={{borderTop:`1px solid ${pal.settingsBorder}`,margin:'0.15rem 0',opacity:0.5}}/>
+                    {currentScene && (
+                      <button onClick={()=>{setShowSettings(false);setImgConfirm({type:'current'});}}
+                        style={{display:'block',width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${pal.settingsBorder}40`,color:pal.settingsText,padding:'0.55rem 0.9rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.78rem',textAlign:'left',transition:'background 0.1s'}}
+                        onMouseOver={e=>e.currentTarget.style.background='rgba(201,169,110,0.12)'}
+                        onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                        🖼 Refresh Scene Image
+                      </button>
+                    )}
+                    <button onClick={()=>{setShowSettings(false);setImgConfirm({type:'all'});}}
+                      style={{display:'block',width:'100%',background:'transparent',border:'none',color:pal.settingsText,padding:'0.55rem 0.9rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.78rem',textAlign:'left',transition:'background 0.1s'}}
+                      onMouseOver={e=>e.currentTarget.style.background='rgba(201,169,110,0.12)'}
+                      onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                      🗑 Clear All Images
+                    </button>
                   </div>
                 )}
               </div>
