@@ -372,9 +372,8 @@ app.get('/api/image-diag', async (req, res) => {
 app.post('/api/image', auth, async (req, res) => {
   const { entityType, entityId, prompt } = req.body;
   if (!entityType || !entityId) return res.status(400).json({ error: 'entityType and entityId required' });
-  if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'Image generation not configured' });
 
-  // Return cached image if available
+  // Return cached image if available (stored as full data URL)
   const { rows } = await pool.query(
     'SELECT image_data FROM images WHERE entity_type=$1 AND entity_id=$2',
     [entityType, entityId]
@@ -383,85 +382,80 @@ app.post('/api/image', auth, async (req, res) => {
 
   // Build prompt
   let fullPrompt;
-  const aspectRatio = entityType === 'npc' ? '1:1' : '16:9';
+  const isPortrait = entityType === 'npc';
 
   if (entityType === 'npc') {
     const npc = NPC_CATALOG.find(n => n.id === entityId);
     if (!npc) return res.status(404).json({ error: 'NPC not found' });
     fullPrompt = `${IMAGE_STYLE} Character portrait, upper body. ${npc.name}, ${npc.role}. ${npc.physicalDescription} Facing viewer, expressive, medieval costume.`;
-  } else if (entityType === 'scene') {
-    fullPrompt = `${IMAGE_STYLE} ${prompt}`;
   } else {
     fullPrompt = `${IMAGE_STYLE} ${prompt}`;
   }
 
   try {
-    let imageData = null;
-    const diagnostics = [];
+    // imageData is stored/returned as a full data URL: "data:image/TYPE;base64,..."
+    let imageDataUrl = null;
 
-    // ── 1. Try Imagen 4 Fast (dedicated image model, predict endpoint) ──────
+    // ── 1. Pollinations.ai — free, no API key required ──────────────────────
     {
-      const r = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key=${process.env.GEMINI_API_KEY}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instances: [{ prompt: fullPrompt }], parameters: { sampleCount: 1, aspectRatio } }) }
-      );
-      if (r.ok) {
-        const data = await r.json();
-        imageData = data.predictions?.[0]?.bytesBase64Encoded || null;
-        if (imageData) console.log(`[image] imagen-4.0-fast: OK for ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
-        else { console.log('[image] imagen-4.0-fast: HTTP 200 but no bytesBase64Encoded'); diagnostics.push({ model: 'imagen-4.0-fast', status: 200, error: 'no image data' }); }
-      } else {
-        const err = await r.text();
-        console.log(`[image] imagen-4.0-fast: HTTP ${r.status} — ${err.slice(0, 300)}`);
-        diagnostics.push({ model: 'imagen-4.0-fast', status: r.status, error: err.slice(0, 300) });
-      }
-    }
-
-    // ── 2. Fallback: Gemini image models (generateContent endpoint) ──────────
-    if (!imageData) {
-      const GEMINI_MODELS = [
-        'gemini-2.0-flash-exp-image-generation',
-        'gemini-2.5-flash-image',
-      ];
-      for (const name of GEMINI_MODELS) {
-        if (imageData) break;
-        const r = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }) }
-        );
-        if (!r.ok) {
-          const err = await r.text();
-          console.log(`[image] ${name}: HTTP ${r.status} — ${err.slice(0, 300)}`);
-          diagnostics.push({ model: name, status: r.status, error: err.slice(0, 300) });
-          continue;
-        }
-        const data = await r.json();
-        const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
-        if (part?.inlineData?.data) {
-          imageData = part.inlineData.data;
-          console.log(`[image] ${name}: OK for ${entityType}/${entityId} (${Math.round(imageData.length/1024)}KB)`);
+      const w = isPortrait ? 512 : 832;
+      const h = isPortrait ? 512 : 468;
+      const seed = Math.floor(Math.random() * 99999);
+      const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}?width=${w}&height=${h}&nologo=true&model=flux&seed=${seed}`;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 45000);
+        const r = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (r.ok) {
+          const buf = await r.arrayBuffer();
+          const b64 = Buffer.from(buf).toString('base64');
+          imageDataUrl = `data:image/jpeg;base64,${b64}`;
+          console.log(`[image] pollinations OK: ${entityType}/${entityId} (${Math.round(b64.length / 1024)}KB)`);
         } else {
-          console.log(`[image] ${name}: HTTP 200 but no image part`);
-          diagnostics.push({ model: name, status: 200, error: 'no image in response' });
+          console.log(`[image] pollinations HTTP ${r.status}`);
         }
+      } catch (e) {
+        console.log(`[image] pollinations error: ${e.message}`);
       }
     }
 
-    if (!imageData) {
-      console.error('[image] All models failed:', JSON.stringify(diagnostics));
-      return res.status(502).json({ error: 'Image generation failed', diagnostics });
+    // ── 2. Fallback: Gemini/Imagen (requires paid Google AI plan) ───────────
+    if (!imageDataUrl && process.env.GEMINI_API_KEY) {
+      const aspectRatio = isPortrait ? '1:1' : '16:9';
+      const geminiModels = ['gemini-2.0-flash-exp-image-generation', 'gemini-2.5-flash-image'];
+      for (const name of geminiModels) {
+        if (imageDataUrl) break;
+        try {
+          const r = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${name}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+            { method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ contents: [{ parts: [{ text: fullPrompt }] }], generationConfig: { responseModalities: ['IMAGE', 'TEXT'] } }) }
+          );
+          if (!r.ok) { console.log(`[image] ${name} HTTP ${r.status}`); continue; }
+          const data = await r.json();
+          const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData?.mimeType?.startsWith('image/'));
+          if (part?.inlineData?.data) {
+            const mime = part.inlineData.mimeType;
+            imageDataUrl = `data:${mime};base64,${part.inlineData.data}`;
+            console.log(`[image] ${name} OK: ${entityType}/${entityId}`);
+          }
+        } catch (e) { console.log(`[image] ${name} error: ${e.message}`); }
+      }
     }
 
-    // Cache globally
+    if (!imageDataUrl) {
+      return res.status(502).json({ error: 'Image generation failed' });
+    }
+
+    // Cache globally (store full data URL)
     await pool.query(
       `INSERT INTO images (entity_type, entity_id, prompt, image_data)
        VALUES ($1,$2,$3,$4) ON CONFLICT (entity_type, entity_id) DO NOTHING`,
-      [entityType, entityId, fullPrompt, imageData]
+      [entityType, entityId, fullPrompt, imageDataUrl]
     );
 
-    res.json({ imageData, cached: false });
+    res.json({ imageData: imageDataUrl, cached: false });
   } catch (err) {
     console.error('Image generation error:', err);
     res.status(500).json({ error: 'Server error' });

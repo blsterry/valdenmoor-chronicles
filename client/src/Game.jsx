@@ -1221,14 +1221,14 @@ export default function Game({ user, onLogout, onAdmin }) {
                 {entry.scenePrompt && (() => {
                   const imgKey = slugifyPrompt(entry.scenePrompt);
                   return sceneImages[imgKey]
-                    ? <img src={`data:image/png;base64,${sceneImages[imgKey]}`} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'240px',objectFit:'cover',borderBottom:`1px solid ${entryTheme.accent}33`}}/>
+                    ? <img src={sceneImages[imgKey]} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'240px',objectFit:'cover',borderBottom:`1px solid ${entryTheme.accent}33`}}/>
                     : <div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>;
                 })()}
                 {entry.npcIds?.length > 0 && entry.npcIds.some(id => npcPortraits[id]) && (
                   <div style={{display:'flex',gap:'0.4rem',padding:'0.35rem 0.6rem',background:'rgba(0,0,0,0.3)',flexWrap:'wrap',alignItems:'flex-end'}}>
                     {entry.npcIds.filter(id => npcPortraits[id]).map(id => (
                       <div key={id} style={{textAlign:'center'}}>
-                        <img src={`data:image/png;base64,${npcPortraits[id]}`} alt={id} style={{width:'52px',height:'52px',objectFit:'cover',border:`1px solid ${entryTheme.accent}44`,display:'block'}}/>
+                        <img src={npcPortraits[id]} alt={id} style={{width:'52px',height:'52px',objectFit:'cover',border:`1px solid ${entryTheme.accent}44`,display:'block'}}/>
                         <div style={{color:'#6a5a4a',fontSize:'0.58rem',marginTop:'0.1rem'}}>{id.replace(/_/g,' ')}</div>
                       </div>
                     ))}
