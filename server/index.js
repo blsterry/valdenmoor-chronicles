@@ -484,15 +484,13 @@ Do NOT include the player character or any generic human figure.
 No redundancy — every phrase must add new visual information.
 Output ONLY the comma-separated noun phrases, nothing else.`;
 
-      // Try stable model names first, then aliases.
-      // These all use the standard text generateContent endpoint (no image modalities).
+      // gemini-2.0-flash and gemini-1.5-* are deprecated/removed on v1beta as of Mar 2026.
+      // gemini-2.5-flash is the current stable text model; lite variants as cheap fallbacks.
       const GEMINI_TEXT_MODELS = [
-        'gemini-2.0-flash-001',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash-001',
-        'gemini-1.5-flash',
-        'gemini-1.5-pro-001',
-        'gemini-1.5-pro',
+        'gemini-2.5-flash',
+        'gemini-2.5-flash-lite',
+        'gemini-2.0-flash-lite',
+        'gemini-flash-latest',
       ];
 
       for (const model of GEMINI_TEXT_MODELS) {
