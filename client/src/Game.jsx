@@ -1389,9 +1389,9 @@ export default function Game({ user, onLogout, onAdmin }) {
                 )}
               </>)}
 
-              </div>{/* end padding */}
-            </div>{/* end panel box */}
-          </div>{/* end backdrop */}
+              </div>
+            </div>
+          </div>
         )}
 
         {/* NARRATIVE LOG */}
