@@ -1241,150 +1241,157 @@ export default function Game({ user, onLogout, onAdmin }) {
           </div>
         </div>
 
-        {/* STATS PANEL */}
-        {panel==='Stats'&&(
-          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.5rem',maxWidth:'400px'}}>
-              {Object.entries(character.stats).map(([s,v])=>{
-                const mod=Math.floor((v-10)/2);
-                return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:`1px solid ${pal.panelBorder}`}}>
-                  <div style={{color:pal.textMuted,fontSize:'0.6rem',letterSpacing:'0.1em'}}>{s}</div>
-                  <div style={{color:pal.textAccent,fontSize:'1.2rem'}}>{v}</div>
-                  <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.65rem'}}>{mod>=0?'+':''}{mod}</div>
-                </div>;
-              })}
-            </div>
-            {character.statPoints>0&&<div style={{color:pal.textAccent,fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
-            <div style={{marginTop:'0.5rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-              {(()=>{
-                const p = character.gender==='he'?'he/him':character.gender==='she'?'she/her':'they/them';
-                const gt = formatGameTime(character.gameMinutes || 0);
-                const needs = needsLabel(character.hunger, character.thirst, character.fatigue);
-                return <>
-                  <div style={{color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic'}}>
-                    {`Day ${gt.dayNum} · ${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm} · ${character.race} · ${p}`}
-                  </div>
-                  {needs && <div style={{color:needs.includes('⚠')?'#c94a4a':pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',marginTop:'0.15rem'}}>{needs}</div>}
-                </>;
-              })()}
-            </div>
-          </div>
-        )}
+        {/* PANEL OVERLAY — fixed drawer so panels don't displace the log or force scrolling */}
+        {panel && (
+          <div
+            style={{position:'fixed',inset:0,zIndex:400,display:'flex',alignItems:'flex-start',justifyContent:'flex-start'}}
+            onClick={()=>setPanel(null)}
+          >
+            <div
+              style={{position:'relative',marginTop:'0',width:'100%',maxWidth:'420px',maxHeight:'80vh',overflowY:'auto',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,borderTop:'none',borderLeft:'none',boxShadow:'4px 4px 24px rgba(0,0,0,0.7)',fontFamily:'Georgia, serif'}}
+              onClick={e=>e.stopPropagation()}
+            >
+              {/* Panel header */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'0.6rem 0.9rem',borderBottom:`1px solid ${pal.settingsBorder}`,position:'sticky',top:0,background:pal.settingsBg,zIndex:1}}>
+                <span style={{color:pal.textAccent,fontSize:'0.7rem',letterSpacing:'0.15em'}}>{panel.toUpperCase()}</span>
+                <button onClick={()=>setPanel(null)} style={{background:'transparent',border:'none',color:pal.textMuted,fontSize:'1rem',cursor:'pointer',padding:'0 0.2rem',lineHeight:1}}>×</button>
+              </div>
+              <div style={{padding:'0.75rem'}}>
 
-        {/* PACK PANEL */}
-        {panel==='Pack'&&(
-          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
-            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
-            {character.inventory.length===0
-              ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
-              : (() => {
-                  const counts={};
-                  character.inventory.forEach(item=>{counts[item]=(counts[item]||0)+1;});
-                  return Object.entries(counts).map(([item,count])=>(
-                    <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <span>· {item}</span>
-                      {count>1&&<span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
-                    </div>
-                  ));
-                })()
-            }
-            <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-              Use any item by describing it in the input below.
-            </div>
-          </div>
-        )}
-
-        {/* SKILLS PANEL */}
-        {panel==='Skills'&&(
-          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
-            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.6rem'}}>SKILLS</div>
-            {character.skills.length===0
-              ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>
-                  No skills yet. Skills are learned slowly from willing teachers — and teachers must be earned.
+              {/* ── STATS ── */}
+              {panel==='Stats'&&(<>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.5rem',maxWidth:'400px'}}>
+                  {Object.entries(character.stats).map(([s,v])=>{
+                    const mod=Math.floor((v-10)/2);
+                    return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:`1px solid ${pal.panelBorder}`}}>
+                      <div style={{color:pal.textMuted,fontSize:'0.6rem',letterSpacing:'0.1em'}}>{s}</div>
+                      <div style={{color:pal.textAccent,fontSize:'1.2rem'}}>{v}</div>
+                      <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.65rem'}}>{mod>=0?'+':''}{mod}</div>
+                    </div>;
+                  })}
                 </div>
-              : character.skills.map(sk => <SkillProgressBar key={sk.id || sk.name} skill={sk}/>)
-            }
-            <div style={{marginTop:'0.5rem',color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-              Skills advance through practice (XP) and meeting tier gate requirements.
-            </div>
-          </div>
-        )}
-
-        {/* SPELLS PANEL */}
-        {panel==='Spells'&&(
-          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
-            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
-            {character.spells.length===0 && (character.spellLearning?.length === 0 || !character.spellLearning)
-              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach. Magic is not given — it is earned through trust and time.</div>
-              : character.spells.map((sp,i)=>(
-                <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
-                  <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost} MP)</span></div>
-                  <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description}</div>
-                  <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic'}}>Taught by {sp.taughtBy}</div>
+                {character.statPoints>0&&<div style={{color:pal.textAccent,fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
+                <div style={{marginTop:'0.5rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+                  {(()=>{
+                    const p = character.gender==='he'?'he/him':character.gender==='she'?'she/her':'they/them';
+                    const gt = formatGameTime(character.gameMinutes || 0);
+                    const needs = needsLabel(character.hunger, character.thirst, character.fatigue);
+                    return <>
+                      <div style={{color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic'}}>
+                        {`Day ${gt.dayNum} · ${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm} · ${character.race} · ${p}`}
+                      </div>
+                      {needs && <div style={{color:needs.includes('⚠')?'#c94a4a':pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',marginTop:'0.15rem'}}>{needs}</div>}
+                    </>;
+                  })()}
                 </div>
-              ))
-            }
-            {/* In-progress spell learning */}
-            {(character.spellLearning?.length > 0) && (
-              <>
-                <div style={{color:'#5a4a6a',fontSize:'0.65rem',letterSpacing:'0.1em',margin:'0.5rem 0 0.4rem',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.5rem'}}>LEARNING</div>
-                {character.spellLearning.map((sl,i) => (
-                  <div key={i} style={{marginBottom:'0.5rem',paddingBottom:'0.4rem',borderBottom:'1px solid rgba(100,80,120,0.15)'}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
-                      <span style={{color:'#8060a8',fontSize:'0.82rem'}}>◌ {sl.spellName}</span>
-                      <span style={{color:'#4a3a5a',fontSize:'0.65rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+              </>)}
+
+              {/* ── PACK ── */}
+              {panel==='Pack'&&(<>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
+                {character.inventory.length===0
+                  ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
+                  : (() => {
+                      const counts={};
+                      character.inventory.forEach(item=>{counts[item]=(counts[item]||0)+1;});
+                      return Object.entries(counts).map(([item,count])=>(
+                        <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <span>· {item}</span>
+                          {count>1&&<span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
+                        </div>
+                      ));
+                    })()
+                }
+                <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+                  Use any item by describing it in the input below.
+                </div>
+              </>)}
+
+              {/* ── SKILLS ── */}
+              {panel==='Skills'&&(<>
+                {character.skills.length===0
+                  ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>
+                      No skills yet. Skills are learned slowly from willing teachers — and teachers must be earned.
                     </div>
-                    <div style={{height:'3px',background:'rgba(255,255,255,0.05)',borderRadius:'2px',margin:'0.25rem 0',overflow:'hidden'}}>
-                      <div style={{width:`${(sl.stage/sl.totalStages)*100}%`,height:'100%',background:'#6a4a8a',borderRadius:'2px'}}/>
+                  : character.skills.map(sk => <SkillProgressBar key={sk.id || sk.name} skill={sk}/>)
+                }
+                <div style={{marginTop:'0.5rem',color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+                  Skills advance through practice (XP) and meeting tier gate requirements.
+                </div>
+              </>)}
+
+              {/* ── SPELLS ── */}
+              {panel==='Spells'&&(<>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
+                {character.spells.length===0 && (character.spellLearning?.length === 0 || !character.spellLearning)
+                  ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach. Magic is not given — it is earned through trust and time.</div>
+                  : character.spells.map((sp,i)=>(
+                    <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
+                      <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost} MP)</span></div>
+                      <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description}</div>
+                      <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic'}}>Taught by {sp.taughtBy}</div>
                     </div>
-                    {sl.partialNote && <div style={{color:'#5a4a6a',fontSize:'0.68rem',fontStyle:'italic'}}>{sl.partialNote}</div>}
-                    {sl.teacherNpcId && <div style={{color:'#3a2a4a',fontSize:'0.62rem',fontStyle:'italic'}}>Learning from: {sl.teacherNpcId.replace(/_/g,' ')}</div>}
+                  ))
+                }
+                {(character.spellLearning?.length > 0) && (<>
+                  <div style={{color:'#5a4a6a',fontSize:'0.65rem',letterSpacing:'0.1em',margin:'0.5rem 0 0.4rem',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.5rem'}}>LEARNING</div>
+                  {character.spellLearning.map((sl,i) => (
+                    <div key={i} style={{marginBottom:'0.5rem',paddingBottom:'0.4rem',borderBottom:'1px solid rgba(100,80,120,0.15)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                        <span style={{color:'#8060a8',fontSize:'0.82rem'}}>◌ {sl.spellName}</span>
+                        <span style={{color:'#4a3a5a',fontSize:'0.65rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+                      </div>
+                      <div style={{height:'3px',background:'rgba(255,255,255,0.05)',borderRadius:'2px',margin:'0.25rem 0',overflow:'hidden'}}>
+                        <div style={{width:`${(sl.stage/sl.totalStages)*100}%`,height:'100%',background:'#6a4a8a',borderRadius:'2px'}}/>
+                      </div>
+                      {sl.partialNote && <div style={{color:'#5a4a6a',fontSize:'0.68rem',fontStyle:'italic'}}>{sl.partialNote}</div>}
+                      {sl.teacherNpcId && <div style={{color:'#3a2a4a',fontSize:'0.62rem',fontStyle:'italic'}}>Learning from: {sl.teacherNpcId.replace(/_/g,' ')}</div>}
+                    </div>
+                  ))}
+                </>)}
+              </>)}
+
+              {/* ── LORE ── */}
+              {panel==='Lore'&&(<>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
+                {Object.keys(character.flags).length===0
+                  ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet. Investigate the world.</div>
+                  : Object.entries(character.flags).filter(([k])=>!k.startsWith('notable_')).map(([k,v])=>(
+                      <div key={k} style={{color:'#c9a96e',fontSize:'0.78rem',padding:'0.15rem 0'}}>· {k.replace(/_/g,' ')}: <span style={{color:'#6a5a4a'}}>{String(v)}</span></div>
+                    ))
+                }
+                <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>KNOWN LOCATIONS</div>
+                {character.knownLocations.map(loc=>(
+                  <div key={loc} style={{color:'#5a7a5a',fontSize:'0.78rem',display:'flex',alignItems:'center',gap:'0.4rem'}}>
+                    · {loc.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+                    {loc===character.location&&<span style={{color:'#4a5a3a',fontSize:'0.65rem'}}>← here</span>}
+                    {character.waypoints?.includes(loc)&&<span style={{color:'#c9a96e',fontSize:'0.6rem'}}>★</span>}
                   </div>
                 ))}
-              </>
-            )}
-          </div>
-        )}
+                {Object.keys(npcStates).length > 0 && (
+                  <>
+                    <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>NPC RELATIONSHIPS</div>
+                    {Object.entries(npcStates)
+                      .filter(([,s]) => s.interactionCount > 0)
+                      .sort(([,a],[,b]) => (b.relationship||0) - (a.relationship||0))
+                      .map(([id, s]) => {
+                        const rel = s.relationship || 0;
+                        const relLabel = rel >= 80 ? 'Loyal' : rel >= 60 ? 'Trusted' : rel >= 30 ? 'Warm' : rel >= 0 ? 'Neutral' : rel >= -40 ? 'Cool' : rel >= -60 ? 'Hostile' : 'Refused';
+                        const relColor = rel >= 60 ? '#8fc47a' : rel >= 0 ? '#c9a96e' : '#c94a4a';
+                        return (
+                          <div key={id} style={{color:'#8a7a6a',fontSize:'0.72rem',padding:'0.1rem 0',display:'flex',justifyContent:'space-between'}}>
+                            <span>· {id.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</span>
+                            <span style={{color:relColor,fontSize:'0.65rem'}}>{relLabel} ({rel > 0 ? '+' : ''}{rel})</span>
+                          </div>
+                        );
+                      })}
+                  </>
+                )}
+              </>)}
 
-        {/* LORE PANEL */}
-        {panel==='Lore'&&(
-          <div style={{background:pal.panelBg,borderBottom:`1px solid ${pal.panelBorder}`,padding:'0.75rem'}}>
-            <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
-            {Object.keys(character.flags).length===0
-              ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet. Investigate the world.</div>
-              : Object.entries(character.flags).filter(([k])=>!k.startsWith('notable_')).map(([k,v])=>(
-                  <div key={k} style={{color:'#c9a96e',fontSize:'0.78rem',padding:'0.15rem 0'}}>· {k.replace(/_/g,' ')}: <span style={{color:'#6a5a4a'}}>{String(v)}</span></div>
-                ))
-            }
-            <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>KNOWN LOCATIONS</div>
-            {character.knownLocations.map(loc=>(
-              <div key={loc} style={{color:'#5a7a5a',fontSize:'0.78rem',display:'flex',alignItems:'center',gap:'0.4rem'}}>
-                · {loc.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
-                {loc===character.location&&<span style={{color:'#4a5a3a',fontSize:'0.65rem'}}>← here</span>}
-                {character.waypoints?.includes(loc)&&<span style={{color:'#c9a96e',fontSize:'0.6rem'}}>★</span>}
-              </div>
-            ))}
-            {/* Notable NPC relationships */}
-            {Object.keys(npcStates).length > 0 && (
-              <>
-                <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>NPC RELATIONSHIPS</div>
-                {Object.entries(npcStates)
-                  .filter(([,s]) => s.interactionCount > 0)
-                  .sort(([,a],[,b]) => (b.relationship||0) - (a.relationship||0))
-                  .map(([id, s]) => {
-                    const rel = s.relationship || 0;
-                    const relLabel = rel >= 80 ? 'Loyal' : rel >= 60 ? 'Trusted' : rel >= 30 ? 'Warm' : rel >= 0 ? 'Neutral' : rel >= -40 ? 'Cool' : rel >= -60 ? 'Hostile' : 'Refused';
-                    const relColor = rel >= 60 ? '#8fc47a' : rel >= 0 ? '#c9a96e' : '#c94a4a';
-                    return (
-                      <div key={id} style={{color:'#8a7a6a',fontSize:'0.72rem',padding:'0.1rem 0',display:'flex',justifyContent:'space-between'}}>
-                        <span>· {id.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</span>
-                        <span style={{color:relColor,fontSize:'0.65rem'}}>{relLabel} ({rel > 0 ? '+' : ''}{rel})</span>
-                      </div>
-                    );
-                  })}
-              </>
-            )}
-          </div>
+              </div>{/* end padding */}
+            </div>{/* end panel box */}
+          </div>{/* end backdrop */}
         )}
 
         {/* NARRATIVE LOG */}
