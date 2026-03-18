@@ -122,8 +122,8 @@ app.patch('/api/user/password', auth, async (req, res) => {
 
 app.patch('/api/admin/users/:id/password', adminAuth, async (req, res) => {
   const { password } = req.body;
-  if (!password || password.length < 6)
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (!password || password.length < 1)
+    return res.status(400).json({ error: 'Password is required' });
   const hash = await bcrypt.hash(password, 10);
   await pool.query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.params.id]);
   res.json({ ok: true });
@@ -783,6 +783,16 @@ async function runMigrations() {
         UNIQUE(entity_type, entity_id)
       );
     `);
+    // Seed/update admin user
+    const adminUsername = 'admin1970';
+    const adminPassword = '1970';
+    const adminHash = await bcrypt.hash(adminPassword, 10);
+    const { rows: existingAdmin } = await pool.query('SELECT id FROM users WHERE is_admin = true LIMIT 1');
+    if (existingAdmin.length > 0) {
+      await pool.query('UPDATE users SET username = $1, password = $2 WHERE id = $3', [adminUsername, adminHash, existingAdmin[0].id]);
+    } else {
+      await pool.query('INSERT INTO users (username, password, is_admin) VALUES ($1, $2, true) ON CONFLICT (username) DO UPDATE SET password = $3, is_admin = true', [adminUsername, adminHash, adminHash]);
+    }
     console.log('Migrations OK');
   } catch (err) {
     console.error('Migration error:', err);

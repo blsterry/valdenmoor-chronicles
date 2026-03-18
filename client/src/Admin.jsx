@@ -54,6 +54,7 @@ export default function Admin({ onBack }) {
   const [users, setUsers]       = useState([]);
   const [newUser, setNewUser]   = useState({ username: '', password: '' });
   const [pwReset, setPwReset]   = useState({});  // { [id]: newPw }
+  const [showPw, setShowPw]     = useState({});  // { [id]: bool, new: bool }
   const [msg, setMsg]           = useState('');
   const [err, setErr]           = useState('');
 
@@ -87,7 +88,7 @@ export default function Admin({ onBack }) {
 
   async function resetPw(u) {
     const pw = pwReset[u.id];
-    if (!pw || pw.length < 6) return flash(false, 'Password must be 6+ characters.');
+    if (!pw) return flash(false, 'Enter a password.');
     await adminResetPassword(u.id, pw);
     setPwReset(p => ({ ...p, [u.id]: '' }));
     flash(true, `Password updated for ${u.username}.`);
@@ -121,9 +122,14 @@ export default function Admin({ onBack }) {
           </div>
           <div>
             <div style={{ color: '#4a3a2a', fontSize: '0.6rem', marginBottom: '0.2rem' }}>TEMPORARY PASSWORD</div>
-            <input style={S.input} value={newUser.password}
-              onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))}
-              placeholder="password" type="password" />
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <input style={S.input} value={newUser.password}
+                onChange={e => setNewUser(p => ({ ...p, password: e.target.value }))}
+                placeholder="password" type={showPw['new'] ? 'text' : 'password'} />
+              <button type="button" onClick={() => setShowPw(p => ({ ...p, new: !p['new'] }))}
+                style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#6a5a4a', cursor: 'pointer', fontSize: '0.62rem', fontFamily: 'Georgia, serif' }}
+              >{showPw['new'] ? 'hide' : 'show'}</button>
+            </div>
             <div style={{ color: newUser.password.length > 0 && newUser.password.length < 6 ? '#c94a4a' : '#3a2a1a', fontSize: '0.58rem', marginTop: '0.25rem' }}>
               min. 6 characters · no spaces
             </div>
@@ -159,23 +165,26 @@ export default function Admin({ onBack }) {
             )}
           </div>
 
-          {!u.is_admin && (
-            <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <div>
+          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
                 <input
                   style={{ ...S.input, width: 180 }}
                   placeholder="New password"
-                  type="password"
+                  type={showPw[u.id] ? 'text' : 'password'}
                   value={pwReset[u.id] || ''}
                   onChange={e => setPwReset(p => ({ ...p, [u.id]: e.target.value }))}
                 />
-                <div style={{ color: (pwReset[u.id]?.length > 0 && pwReset[u.id]?.length < 6) ? '#c94a4a' : '#3a2a1a', fontSize: '0.58rem', marginTop: '0.2rem' }}>
-                  min. 6 characters · no spaces
-                </div>
+                <button type="button" onClick={() => setShowPw(p => ({ ...p, [u.id]: !p[u.id] }))}
+                  style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-50%)', background: 'transparent', border: 'none', color: '#6a5a4a', cursor: 'pointer', fontSize: '0.62rem', fontFamily: 'Georgia, serif' }}
+                >{showPw[u.id] ? 'hide' : 'show'}</button>
               </div>
-              <button style={{ ...S.btn('#b09a70'), marginBottom: '1rem' }} onClick={() => resetPw(u)}>Reset Password</button>
+              <div style={{ color: '#3a2a1a', fontSize: '0.58rem', marginTop: '0.2rem' }}>
+                admin can set any password
+              </div>
             </div>
-          )}
+            <button style={{ ...S.btn('#b09a70'), marginBottom: '1rem' }} onClick={() => resetPw(u)}>Reset Password</button>
+          </div>
         </div>
       ))}
     </div>
