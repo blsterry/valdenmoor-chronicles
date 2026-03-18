@@ -793,15 +793,13 @@ async function runMigrations() {
     } else {
       await pool.query('INSERT INTO users (username, password, is_admin) VALUES ($1, $2, true) ON CONFLICT (username) DO UPDATE SET password = $3, is_admin = true', [adminUsername, adminHash, adminHash]);
     }
-    // One-time fix: restore 15gp/10sp/15cp to non-admin players whose gold was zeroed
+    // Fix: set currency to 15gp/10sp/15cp for non-admin players
     await pool.query(`
       UPDATE saves SET character = character
         || '{"gold":15,"silver":10,"copper":15}'::jsonb
       WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)
-        AND (character->>'gold')::int = 0
-        AND (character->>'silver')::int = 0
-        AND (character->>'copper')::int = 0
-    `).catch(() => {});  // Ignore if no matching rows
+        AND character IS NOT NULL
+    `).catch(() => {});
 
     console.log('Migrations OK');
   } catch (err) {

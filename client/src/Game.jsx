@@ -540,6 +540,8 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [showSettings, setShowSettings]   = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [showChangePw, setShowChangePw]   = useState(false);
+  const [sidebarSkills, setSidebarSkills] = useState(false);
+  const [sidebarSpells, setSidebarSpells] = useState(false);
   const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
   const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
   const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
@@ -1607,16 +1609,6 @@ export default function Game({ user, onLogout, onAdmin }) {
                 <div style={{color:pal.textMuted,fontSize:'0.72rem'}}>Level {character.level} · {character.race}</div>
               </div>
 
-              {/* QUICK ACCESS BUTTONS */}
-              <div style={{display:'flex',gap:'0.3rem'}}>
-                {[['⚔','Skills'],['✨','Spells'],['📊','Stats']].map(([icon,label])=>(
-                  <button key={label} onClick={()=>setPanel(p=>p===label?null:label)}
-                    style={{flex:1,background:(panel===label)?'rgba(201,169,110,0.2)':'transparent',border:`1px solid ${(panel===label)?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:(panel===label)?'#e8c87a':'#8a7a5a',padding:'0.3rem 0',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif',textAlign:'center',transition:'all 0.15s'}}>
-                    {icon} {label}
-                  </button>
-                ))}
-              </div>
-
               {/* HP / MP / XP */}
               <div style={{display:'flex',flexDirection:'column',gap:'0.35rem'}}>
                 <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
@@ -1624,15 +1616,19 @@ export default function Game({ user, onLogout, onAdmin }) {
                 <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
               </div>
 
-              {/* CURRENCY */}
-              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>PURSE</div>
-                <div style={{display:'flex',gap:'0.6rem',alignItems:'baseline'}}>
-                  <span style={{color:'#c9a96e'}}>{character.gold||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> gp</span></span>
-                  <span style={{color:'#9a9aaa'}}>{character.silver||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> sp</span></span>
-                  <span style={{color:'#b87333'}}>{character.copper||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> cp</span></span>
-                </div>
-              </div>
+              {/* CONDITION (needs) */}
+              {(()=>{
+                const h=character.hunger||0, t=character.thirst||0, f=character.fatigue||0;
+                const items = [];
+                if(h>=10) items.push({label:h<25?'Peckish':h<50?'Hungry':h<75?'Famished':'Starving',color:h<25?'#6a5a4a':h<50?'#c9a96e':h<75?'#e0a030':'#c94a4a'});
+                if(t>=10) items.push({label:t<25?'A Bit Dry':t<50?'Thirsty':t<75?'Parched':'Dehydrated',color:t<25?'#6a5a4a':t<50?'#c9a96e':t<75?'#e0a030':'#c94a4a'});
+                if(f>=15) items.push({label:f<30?'Slightly Tired':f<50?'Tired':f<75?'Exhausted':'Collapsing',color:f<30?'#6a5a4a':f<50?'#c9a96e':f<75?'#e0a030':'#c94a4a'});
+                if(items.length===0) return null;
+                return <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                  <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>CONDITION</div>
+                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{(color==='#e0a030'||color==='#c94a4a'?'⚠ ':'')+label}</div>)}
+                </div>;
+              })()}
 
               {/* STATS */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
@@ -1655,19 +1651,15 @@ export default function Game({ user, onLogout, onAdmin }) {
                 </div>
               </div>
 
-              {/* CONDITION (needs) */}
-              {(()=>{
-                const h=character.hunger||0, t=character.thirst||0, f=character.fatigue||0;
-                const items = [];
-                if(h>=10) items.push({label:h<25?'Peckish':h<50?'Hungry':h<75?'Famished':'Starving',color:h<25?'#6a5a4a':h<50?'#c9a96e':h<75?'#e0a030':'#c94a4a'});
-                if(t>=10) items.push({label:t<25?'A Bit Dry':t<50?'Thirsty':t<75?'Parched':'Dehydrated',color:t<25?'#6a5a4a':t<50?'#c9a96e':t<75?'#e0a030':'#c94a4a'});
-                if(f>=15) items.push({label:f<30?'Slightly Tired':f<50?'Tired':f<75?'Exhausted':'Collapsing',color:f<30?'#6a5a4a':f<50?'#c9a96e':f<75?'#e0a030':'#c94a4a'});
-                if(items.length===0) return null;
-                return <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                  <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>CONDITION</div>
-                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{(color==='#e0a030'||color==='#c94a4a'?'⚠ ':'')+label}</div>)}
-                </div>;
-              })()}
+              {/* PURSE */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>PURSE</div>
+                <div style={{display:'flex',gap:'0.6rem',alignItems:'baseline'}}>
+                  <span style={{color:'#c9a96e'}}>{character.gold||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> gp</span></span>
+                  <span style={{color:'#9a9aaa'}}>{character.silver||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> sp</span></span>
+                  <span style={{color:'#b87333'}}>{character.copper||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> cp</span></span>
+                </div>
+              </div>
 
               {/* PACK */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
@@ -1693,18 +1685,55 @@ export default function Game({ user, onLogout, onAdmin }) {
                 })()}
               </div>
 
-              {/* SKILLS */}
-              {character.skills?.length>0&&(
-                <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                  <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>SKILLS</div>
-                  {character.skills.map(sk=>(
-                    <div key={sk.id} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.15rem 0',fontSize:'0.72rem'}}>
-                      <span style={{color:pal.textAccent}}>{sk.name}{sk.selfTaught?' *':''}</span>
-                      <span style={{color:pal.textMuted,fontSize:'0.62rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* SKILLS — toggle button + collapsible */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <button onClick={()=>setSidebarSkills(p=>!p)}
+                  style={{background:sidebarSkills?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSkills?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSkills?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
+                  ⚔ Skills ({character.skills?.length||0}) <span style={{float:'right',fontSize:'0.6rem'}}>{sidebarSkills?'▾':'▸'}</span>
+                </button>
+                {sidebarSkills && (
+                  <div style={{padding:'0.4rem 0.2rem 0'}}>
+                    {character.skills?.length===0
+                      ? <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>No skills yet.</div>
+                      : character.skills.map(sk=>(
+                        <div key={sk.id} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.15rem 0',fontSize:'0.72rem'}}>
+                          <span style={{color:pal.textAccent}}>{sk.name}{sk.selfTaught?' *':''}</span>
+                          <span style={{color:pal.textMuted,fontSize:'0.62rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
+                        </div>
+                      ))
+                    }
+                  </div>
+                )}
+              </div>
+
+              {/* SPELLS — toggle button + collapsible */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <button onClick={()=>setSidebarSpells(p=>!p)}
+                  style={{background:sidebarSpells?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSpells?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSpells?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
+                  ✨ Spells ({character.spells?.length||0}) <span style={{float:'right',fontSize:'0.6rem'}}>{sidebarSpells?'▾':'▸'}</span>
+                </button>
+                {sidebarSpells && (
+                  <div style={{padding:'0.4rem 0.2rem 0'}}>
+                    {character.spells?.length===0 && (!character.spellLearning?.length)
+                      ? <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>No spells yet.</div>
+                      : <>
+                        {character.spells.map((sp,i)=>(
+                          <div key={i} style={{padding:'0.15rem 0',fontSize:'0.72rem'}}>
+                            <span style={{color:'#b08fd4'}}>✦ {sp.name}</span>
+                            <span style={{color:'#5a4a7a',fontSize:'0.6rem',marginLeft:'0.3rem'}}>({sp.mpCost} MP)</span>
+                          </div>
+                        ))}
+                        {character.spellLearning?.map((sl,i)=>(
+                          <div key={`l${i}`} style={{padding:'0.15rem 0',fontSize:'0.68rem'}}>
+                            <span style={{color:'#8060a8'}}>◌ {sl.spellName}</span>
+                            <span style={{color:'#4a3a5a',fontSize:'0.58rem',marginLeft:'0.3rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+                          </div>
+                        ))}
+                      </>
+                    }
+                  </div>
+                )}
+              </div>
 
               {/* GAME TIME */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem',color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic'}}>
