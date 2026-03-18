@@ -1116,7 +1116,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     };
 
     return (
-      <div style={{background:pal.mainBg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:pal.textMain,transition:'background 2s ease',maxWidth:isDesktop?'1140px':'860px',margin:'0 auto'}}>
+      <div style={{background:pal.mainBg,height:isDesktop?'100vh':'auto',minHeight:isDesktop?undefined:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:pal.textMain,transition:'background 2s ease',maxWidth:isDesktop?'1140px':'860px',margin:'0 auto',overflow:isDesktop?'hidden':undefined}}>
         {/* Placeholder color can't be set via inline styles — inject a style tag based on mode */}
         <style>{`input::placeholder { color: ${lightMode ? 'rgba(80,52,16,0.58)' : 'rgba(180,155,110,0.5)'}; }`}</style>
         <Notification notification={notification}/>
@@ -1241,7 +1241,7 @@ export default function Game({ user, onLogout, onAdmin }) {
         )}
 
         {/* HEADER */}
-        <div style={{background:pal.headerBg,backdropFilter:'blur(4px)',borderBottom:`1px solid ${pal.headerBorder}`,padding:'0.65rem 1rem',display:'flex',flexDirection:'column',gap:'0.45rem',position:'sticky',top:0,zIndex:100}}>
+        <div style={{background:pal.headerBg,backdropFilter:'blur(4px)',borderBottom:`1px solid ${pal.headerBorder}`,padding:'0.65rem 1rem',display:'flex',flexDirection:'column',gap:'0.45rem',position:isDesktop?'relative':'sticky',top:0,zIndex:100,flexShrink:0}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'0.4rem'}}>
             <div>
               <span style={{color:pal.textAccent,fontSize:'1.1rem'}}>{character.name}</span>
