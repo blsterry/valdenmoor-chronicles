@@ -793,13 +793,18 @@ async function runMigrations() {
     } else {
       await pool.query('INSERT INTO users (username, password, is_admin) VALUES ($1, $2, true) ON CONFLICT (username) DO UPDATE SET password = $3, is_admin = true', [adminUsername, adminHash, adminHash]);
     }
-    // Fix: set currency to 15gp/10sp/15cp for non-admin players
-    await pool.query(`
-      UPDATE saves SET character = character
-        || '{"gold":15,"silver":10,"copper":15}'::jsonb
-      WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)
-        AND character IS NOT NULL
-    `).catch(() => {});
+    // One-time fix: set currency to 15gp/10sp/15cp (skip if already applied)
+    const { rows: fixDone } = await pool.query(
+      `SELECT 1 FROM saves WHERE character->>'_currencyFix' = '1' LIMIT 1`
+    ).catch(() => ({ rows: [] }));
+    if (fixDone.length === 0) {
+      await pool.query(`
+        UPDATE saves SET character = character
+          || '{"gold":15,"silver":10,"copper":15,"_currencyFix":"1"}'::jsonb
+        WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)
+          AND character IS NOT NULL
+      `).catch(() => {});
+    }
 
     console.log('Migrations OK');
   } catch (err) {
