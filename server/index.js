@@ -793,6 +793,16 @@ async function runMigrations() {
     } else {
       await pool.query('INSERT INTO users (username, password, is_admin) VALUES ($1, $2, true) ON CONFLICT (username) DO UPDATE SET password = $3, is_admin = true', [adminUsername, adminHash, adminHash]);
     }
+    // One-time fix: restore 15gp/10sp/15cp to non-admin players whose gold was zeroed
+    await pool.query(`
+      UPDATE saves SET character = character
+        || '{"gold":15,"silver":10,"copper":15}'::jsonb
+      WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)
+        AND (character->>'gold')::int = 0
+        AND (character->>'silver')::int = 0
+        AND (character->>'copper')::int = 0
+    `).catch(() => {});  // Ignore if no matching rows
+
     console.log('Migrations OK');
   } catch (err) {
     console.error('Migration error:', err);
@@ -973,6 +983,13 @@ Players may type ANYTHING. Honor all reasonable player actions:
 INVENTORY NAMING RULES:
 - Exact, consistent item names. Specific: "Smooth River Stone" not "stone".
 - When removing, the string must exactly match the inventory entry.
+
+EQUIPMENT & MAGIC ITEMS:
+- The player has equipment slots: head, armor, weapon, offhand, ring1, ring2, cloak, boots. The client handles equipping from inventory.
+- When granting weapons, armor, or wearable items via addInventory, use specific names that indicate the slot (e.g. "Iron Helm" not just "Helmet", "Leather Armor" not "armor").
+- Magic items exist but are RARE. They should feel meaningful and earned — never casually dropped. A magic ring found in ruins is a significant find.
+- When describing combat or physical actions, account for what the player has equipped (check character.equipment in their state). A player in leather armor takes less damage than an unarmored one. A shielded player can block.
+- Do not assume the player is equipped with anything not listed in their equipment slots.
 
 NPC MEMORY & RELATIONSHIP RULES — CRITICAL:
 - Use the NPC CONTEXT section below to maintain FULL consistency with past interactions.

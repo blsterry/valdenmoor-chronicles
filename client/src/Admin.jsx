@@ -113,7 +113,7 @@ export default function Admin({ onBack }) {
       {/* Add user */}
       <div style={S.card}>
         <div style={{ color: '#6a5a4a', fontSize: '0.65rem', letterSpacing: '0.12em', marginBottom: '0.75rem' }}>ADD NEW PLAYER</div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div>
             <div style={{ color: '#4a3a2a', fontSize: '0.6rem', marginBottom: '0.2rem' }}>USERNAME</div>
             <input style={S.input} value={newUser.username}
@@ -135,7 +135,7 @@ export default function Admin({ onBack }) {
             </div>
           </div>
           <button
-            style={S.btn('#4caf7a')}
+            style={{ ...S.btn('#4caf7a'), marginTop: '1.1rem' }}
             disabled={!newUser.username || newUser.password.length < 6}
             onClick={createUser}
           >Create Player</button>
