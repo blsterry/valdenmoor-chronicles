@@ -65,6 +65,7 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState('');
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState('');
+  const [showPw, setShowPw]     = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -97,14 +98,21 @@ export default function Login({ onLogin }) {
           />
 
           <label style={S.label}>PASSWORD</label>
-          <input
-            style={S.input}
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            autoComplete="current-password"
-            disabled={loading}
-          />
+          <div style={{ position: 'relative' }}>
+            <input
+              style={{ ...S.input, paddingRight: '2.2rem' }}
+              type={showPw ? 'text' : 'password'}
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              autoComplete="current-password"
+              disabled={loading}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw(p => !p)}
+              style={{ position: 'absolute', right: 0, top: '50%', transform: 'translateY(-70%)', background: 'transparent', border: 'none', color: '#6a5a4a', cursor: 'pointer', fontSize: '0.72rem', fontFamily: 'Georgia, serif', padding: '0.2rem 0.3rem' }}
+            >{showPw ? 'hide' : 'show'}</button>
+          </div>
 
           <button
             style={S.btn}
@@ -121,7 +129,7 @@ export default function Login({ onLogin }) {
 
         <hr style={S.divider} />
         <div style={{ textAlign: 'center', color: '#3a2a1a', fontSize: '0.62rem', fontStyle: 'italic' }}>
-          Access by invitation only.
+          Forgot your password? Ask the admin to reset it.
         </div>
       </div>
     </div>
