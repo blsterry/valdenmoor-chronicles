@@ -1322,9 +1322,8 @@ export default function Game({ user, onLogout, onAdmin }) {
               {isDesktop && <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
                 {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
               </span>}
-              {isDesktop && [['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore']].map(([icon,label])=>(
-                <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
-              ))}
+              {isDesktop && <PanelButton icon="🗺" label="Map" active={false} onClick={() => setShowMap(true)}/>}
+              {isDesktop && <PanelButton icon="📜" label="Lore" active={panel==='Lore'} onClick={()=>setPanel(p=>p==='Lore'?null:'Lore')}/>}
               {!isDesktop && <span style={{color:pal.textAccent,fontSize:'0.92rem',cursor:'pointer'}} onClick={()=>setPanel(p=>p==='Purse'?null:'Purse')} title="Open Purse">
                 💰 {character.gold}g{(character.silver||0)>0?` ${character.silver}s`:''}{(character.copper||0)>0?` ${character.copper}c`:''}
               </span>}
@@ -1332,7 +1331,7 @@ export default function Game({ user, onLogout, onAdmin }) {
               {/* Settings */}
               <div style={{position:'relative'}}>
                 <button onClick={()=>setShowSettings(p=>!p)}
-                  style={{background:showSettings?`rgba(201,169,110,0.15)`:'transparent',border:`1px solid ${showSettings?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:pal.textAccent,padding:'0.25rem 0.65rem',cursor:'pointer',fontSize:'0.88rem',fontFamily:'Georgia, serif',letterSpacing:'0.05em',transition:'all 0.15s'}}>
+                  style={{background:showSettings?`rgba(201,169,110,0.15)`:'transparent',border:`1px solid ${showSettings?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:pal.textAccent,padding:'0.25rem 0.65rem',cursor:'pointer',fontSize:'1.1rem',fontFamily:'Georgia, serif',letterSpacing:'0.05em',transition:'all 0.15s',lineHeight:1}}>
                   ⚙
                 </button>
                 {showSettings && (
@@ -1610,8 +1609,8 @@ export default function Game({ user, onLogout, onAdmin }) {
 
               {/* QUICK ACCESS BUTTONS */}
               <div style={{display:'flex',gap:'0.3rem'}}>
-                {[['📊','Stats'],['🗺','Map'],['✨','Spells']].map(([icon,label])=>(
-                  <button key={label} onClick={()=>label==='Map'?setShowMap(true):setPanel(p=>p===label?null:label)}
+                {[['⚔','Skills'],['✨','Spells'],['📊','Stats']].map(([icon,label])=>(
+                  <button key={label} onClick={()=>setPanel(p=>p===label?null:label)}
                     style={{flex:1,background:(panel===label)?'rgba(201,169,110,0.2)':'transparent',border:`1px solid ${(panel===label)?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:(panel===label)?'#e8c87a':'#8a7a5a',padding:'0.3rem 0',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif',textAlign:'center',transition:'all 0.15s'}}>
                     {icon} {label}
                   </button>
@@ -1669,6 +1668,14 @@ export default function Game({ user, onLogout, onAdmin }) {
                   {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{(color==='#e0a030'||color==='#c94a4a'?'⚠ ':'')+label}</div>)}
                 </div>;
               })()}
+
+              {/* PACK */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <button onClick={()=>setPanel(p=>p==='Pack'?null:'Pack')}
+                  style={{background:panel==='Pack'?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${panel==='Pack'?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:panel==='Pack'?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
+                  🎒 Pack ({character.inventory.length})
+                </button>
+              </div>
 
               {/* EQUIPPED ITEMS */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
