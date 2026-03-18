@@ -143,6 +143,16 @@ app.get('/api/save', auth, async (req, res) => {
   const { rows } = await pool.query(
     'SELECT * FROM saves WHERE user_id = $1', [req.user.id]
   );
+  // One-time currency fix: if gold/silver/copper all 0 and fix not applied, grant 15gp/10sp/15cp
+  if (rows[0] && rows[0].character && !rows[0].character._currencyFix) {
+    const c = rows[0].character;
+    if ((c.gold || 0) === 0 && (c.silver || 0) === 0 && (c.copper || 0) === 0) {
+      c.gold = 15; c.silver = 10; c.copper = 15;
+    }
+    c._currencyFix = '1';
+    rows[0].character = c;
+    await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
+  }
   res.json(rows[0] || null);
 });
 
@@ -793,19 +803,6 @@ async function runMigrations() {
     } else {
       await pool.query('INSERT INTO users (username, password, is_admin) VALUES ($1, $2, true) ON CONFLICT (username) DO UPDATE SET password = $3, is_admin = true', [adminUsername, adminHash, adminHash]);
     }
-    // One-time fix: set currency to 15gp/10sp/15cp (skip if already applied)
-    const { rows: fixDone } = await pool.query(
-      `SELECT 1 FROM saves WHERE character->>'_currencyFix' = '1' LIMIT 1`
-    ).catch(() => ({ rows: [] }));
-    if (fixDone.length === 0) {
-      await pool.query(`
-        UPDATE saves SET character = character
-          || '{"gold":15,"silver":10,"copper":15,"_currencyFix":"1"}'::jsonb
-        WHERE user_id IN (SELECT id FROM users WHERE is_admin = false)
-          AND character IS NOT NULL
-      `).catch(() => {});
-    }
-
     console.log('Migrations OK');
   } catch (err) {
     console.error('Migration error:', err);
