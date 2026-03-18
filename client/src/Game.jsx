@@ -88,9 +88,9 @@ function needsLabel(hunger, thirst, fatigue) {
   const t = thirst  || 0;
   const f = fatigue || 0;
   const parts = [];
-  if (h >= 25) parts.push(h < 50 ? 'hungry' : h < 75 ? 'famished' : '⚠ starving');
-  if (t >= 25) parts.push(t < 50 ? 'thirsty' : t < 75 ? 'parched'  : '⚠ desperate for water');
-  if (f >= 25) parts.push(f < 50 ? 'tired'   : f < 75 ? 'exhausted': '⚠ near collapse');
+  if (h >= 10) parts.push(h < 25 ? 'peckish' : h < 50 ? 'hungry' : h < 75 ? 'famished' : '⚠ starving');
+  if (t >= 10) parts.push(t < 25 ? 'a bit dry' : t < 50 ? 'thirsty' : t < 75 ? 'parched'  : '⚠ desperate for water');
+  if (f >= 15) parts.push(f < 30 ? 'slightly tired' : f < 50 ? 'tired' : f < 75 ? 'exhausted': '⚠ near collapse');
   return parts.join(' · ') || null;
 }
 
@@ -108,6 +108,16 @@ const INITIAL_CHARACTER = {
   spells: [],
   spellLearning: [],   // [{ spellId, spellName, stage, totalStages, teacherNpcId, partialNote }]
   skills: [],          // [{ id, name, tier, tierName, xp, xpToNext, description, taughtBy }]
+  equipment: {         // equipped items by slot
+    head: null,        // hat, headband, crown, helm
+    armor: null,       // chainmail, leather, plate, etc.
+    weapon: null,      // sword, dagger, staff, etc.
+    offhand: null,     // shield, torch, second weapon
+    ring1: null,       // magic ring slot 1
+    ring2: null,       // magic ring slot 2
+    cloak: null,       // cloak, cape, mantle
+    boots: null,       // boots, shoes, sandals
+  },
   statPoints: 10,
   location: 'crossroads',
   knownLocations: ['crossroads'],
@@ -126,6 +136,29 @@ const STAT_LABELS = {
   STR: 'Strength', DEX: 'Dexterity', INT: 'Intellect',
   WIS: 'Wisdom', CON: 'Constitution', CHA: 'Charisma',
 };
+
+const EQUIPMENT_SLOTS = {
+  head:    { label: 'Head',    keywords: ['hat','helm','helmet','headband','crown','hood','circlet','cap','tiara','coif'] },
+  armor:   { label: 'Armor',   keywords: ['armor','mail','chainmail','plate','leather armor','brigandine','gambeson','cuirass','breastplate','hauberk','jerkin','vest'] },
+  weapon:  { label: 'Weapon',  keywords: ['sword','dagger','axe','mace','staff','spear','bow','club','hammer','blade','rapier','scimitar','pike','flail','crossbow'] },
+  offhand: { label: 'Off-hand',keywords: ['shield','buckler','torch','lantern','parrying dagger'] },
+  ring1:   { label: 'Ring 1',  keywords: ['ring'] },
+  ring2:   { label: 'Ring 2',  keywords: ['ring'] },
+  cloak:   { label: 'Cloak',   keywords: ['cloak','cape','mantle','shawl'] },
+  boots:   { label: 'Boots',   keywords: ['boots','shoes','sandals','greaves','sabatons'] },
+};
+
+function guessSlot(itemName) {
+  const lower = itemName.toLowerCase();
+  // Check non-ring slots first
+  for (const [slot, { keywords }] of Object.entries(EQUIPMENT_SLOTS)) {
+    if (slot === 'ring1' || slot === 'ring2') continue;
+    if (keywords.some(kw => lower.includes(kw))) return slot;
+  }
+  // Ring check last
+  if (lower.includes('ring')) return 'ring';
+  return null;
+}
 
 const MOOD_THEMES = {
   tense:      { bg: 'radial-gradient(ellipse at top, #2a0a0a 0%, #0d0505 100%)', accent: '#c94a4a', fog: '#8B1A1A' },
@@ -851,6 +884,39 @@ export default function Game({ user, onLogout, onAdmin }) {
     });
   };
 
+  const equipItem = (itemName) => {
+    setCharacter(prev => {
+      if (!prev) return prev;
+      const slot = guessSlot(itemName);
+      if (!slot) return prev;  // Item not equippable
+      const eq = { ...(prev.equipment || {}) };
+      // Ring: fill ring1 first, then ring2
+      if (slot === 'ring') {
+        if (!eq.ring1) eq.ring1 = itemName;
+        else if (!eq.ring2) eq.ring2 = itemName;
+        else return prev;  // Both ring slots full
+      } else {
+        if (eq[slot]) return prev;  // Slot already occupied
+        eq[slot] = itemName;
+      }
+      const updated = { ...prev, equipment: eq };
+      persistSave(updated, messages, displayLog, mood, options, currentScene);
+      return updated;
+    });
+  };
+
+  const unequipItem = (slot) => {
+    setCharacter(prev => {
+      if (!prev) return prev;
+      const eq = { ...(prev.equipment || {}) };
+      if (!eq[slot]) return prev;
+      eq[slot] = null;
+      const updated = { ...prev, equipment: eq };
+      persistSave(updated, messages, displayLog, mood, options, currentScene);
+      return updated;
+    });
+  };
+
   const spendStatPoint = (stat) => {
     setCharacter(prev => {
       if (!prev || prev.statPoints <= 0 || prev.stats[stat] >= 20) return prev;
@@ -1243,7 +1309,7 @@ export default function Game({ user, onLogout, onAdmin }) {
         {/* HEADER */}
         <div style={{background:pal.headerBg,backdropFilter:'blur(4px)',borderBottom:`1px solid ${pal.headerBorder}`,padding:'0.65rem 1rem',display:'flex',flexDirection:'column',gap:'0.45rem',position:isDesktop?'relative':'sticky',top:0,zIndex:100,flexShrink:0}}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:'0.4rem'}}>
-            <div>
+            {!isDesktop && <div>
               <span style={{color:pal.textAccent,fontSize:'1.1rem'}}>{character.name}</span>
               <span style={{color:pal.textMuted,fontSize:'0.88rem',margin:'0 0.5rem'}}>·</span>
               <span style={{color:pal.textMuted,fontSize:'0.88rem'}}>Lv {character.level}</span>
@@ -1251,11 +1317,14 @@ export default function Game({ user, onLogout, onAdmin }) {
               <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
                 {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
               </span>
-            </div>
-            <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
-              <span style={{color:pal.textAccent,fontSize:'0.92rem',cursor:'pointer'}} onClick={()=>setPanel(p=>p==='Purse'?null:'Purse')} title="Open Purse">
+            </div>}
+            <div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginLeft:isDesktop?'auto':undefined}}>
+              {isDesktop && <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
+                {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
+              </span>}
+              {!isDesktop && <span style={{color:pal.textAccent,fontSize:'0.92rem',cursor:'pointer'}} onClick={()=>setPanel(p=>p==='Purse'?null:'Purse')} title="Open Purse">
                 💰 {character.gold}g{(character.silver||0)>0?` ${character.silver}s`:''}{(character.copper||0)>0?` ${character.copper}c`:''}
-              </span>
+              </span>}
               {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:pal.textMuted,cursor:'pointer',fontSize:'0.65rem',fontFamily:'Georgia, serif'}}>admin</button>}
               {/* Settings */}
               <div style={{position:'relative'}}>
@@ -1313,7 +1382,7 @@ export default function Game({ user, onLogout, onAdmin }) {
           })()}
           <div style={{display:'flex',gap:'0.35rem',flexWrap:'wrap'}}>
             {(isDesktop
-              ? [['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore'],['💰','Purse']]
+              ? [['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore']]
               : [['📊','Stats'],['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore'],['💰','Purse']]
             ).map(([icon,label])=>(
               <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
@@ -1373,22 +1442,52 @@ export default function Game({ user, onLogout, onAdmin }) {
 
               {/* ── PACK ── */}
               {panel==='Pack'&&(<>
+                {/* Equipped items section */}
+                {(()=>{
+                  const eq = character.equipment || {};
+                  const equipped = Object.entries(EQUIPMENT_SLOTS).filter(([slot])=>eq[slot]);
+                  if(equipped.length===0) return null;
+                  return <>
+                    <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>EQUIPPED</div>
+                    {equipped.map(([slot,{label}])=>(
+                      <div key={slot} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                        <span>· {eq[slot]} <span style={{color:pal.textMuted,fontSize:'0.65rem'}}>({label})</span></span>
+                        <button onClick={()=>unequipItem(slot)} style={{background:'transparent',border:`1px solid rgba(201,110,110,0.4)`,color:'#c97a6e',fontSize:'0.6rem',padding:'0.15rem 0.4rem',cursor:'pointer',fontFamily:'Georgia, serif'}}>Unequip</button>
+                      </div>
+                    ))}
+                    <div style={{height:'0.6rem'}}/>
+                  </>;
+                })()}
                 <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
                 {character.inventory.length===0
                   ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
                   : (() => {
                       const counts={};
                       character.inventory.forEach(item=>{counts[item]=(counts[item]||0)+1;});
-                      return Object.entries(counts).map(([item,count])=>(
-                        <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                          <span>· {item}</span>
-                          {count>1&&<span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
-                        </div>
-                      ));
+                      const eq = character.equipment || {};
+                      const equippedItems = Object.values(eq).filter(Boolean);
+                      return Object.entries(counts).map(([item,count])=>{
+                        const isEquipped = equippedItems.includes(item);
+                        const slot = guessSlot(item);
+                        const canEquip = slot && !isEquipped;
+                        // Check if slot is available
+                        let slotAvailable = false;
+                        if(canEquip) {
+                          if(slot==='ring') slotAvailable = !eq.ring1 || !eq.ring2;
+                          else slotAvailable = !eq[slot];
+                        }
+                        return (
+                          <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'0.3rem'}}>
+                            <span style={{flex:1}}>· {item}{isEquipped?' ⬡':''}</span>
+                            {count>1&&<span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
+                            {canEquip&&slotAvailable&&<button onClick={()=>equipItem(item)} style={{background:'transparent',border:`1px solid rgba(110,169,110,0.4)`,color:'#6eaf7a',fontSize:'0.6rem',padding:'0.15rem 0.4rem',cursor:'pointer',fontFamily:'Georgia, serif',whiteSpace:'nowrap'}}>Equip</button>}
+                          </div>
+                        );
+                      });
                     })()
                 }
                 <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-                  Use any item by describing it in the input below.
+                  Use any item by describing it in the input below. Equippable items show an Equip button.
                 </div>
               </>)}
 
@@ -1503,6 +1602,12 @@ export default function Game({ user, onLogout, onAdmin }) {
           {/* SIDEBAR — desktop only */}
           {isDesktop && (
             <div style={{width:'260px',minWidth:'260px',overflowY:'auto',borderRight:`1px solid ${pal.headerBorder}`,background:pal.headerBg,padding:'0.6rem 0.7rem',display:'flex',flexDirection:'column',gap:'0.6rem',fontSize:'0.78rem'}}>
+              {/* NAME / LEVEL */}
+              <div>
+                <div style={{color:pal.textAccent,fontSize:'1.05rem'}}>{character.name}</div>
+                <div style={{color:pal.textMuted,fontSize:'0.72rem'}}>Level {character.level} · {character.race}</div>
+              </div>
+
               {/* HP / MP / XP */}
               <div style={{display:'flex',flexDirection:'column',gap:'0.35rem'}}>
                 <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
@@ -1545,15 +1650,31 @@ export default function Game({ user, onLogout, onAdmin }) {
               {(()=>{
                 const h=character.hunger||0, t=character.thirst||0, f=character.fatigue||0;
                 const items = [];
-                if(h>=25) items.push({label:h<50?'Hungry':h<75?'Famished':'Starving',color:h<50?'#c9a96e':h<75?'#e0a030':'#c94a4a'});
-                if(t>=25) items.push({label:t<50?'Thirsty':t<75?'Parched':'Dehydrated',color:t<50?'#c9a96e':t<75?'#e0a030':'#c94a4a'});
-                if(f>=25) items.push({label:f<50?'Tired':f<75?'Exhausted':'Collapsing',color:f<50?'#c9a96e':f<75?'#e0a030':'#c94a4a'});
+                if(h>=10) items.push({label:h<25?'Peckish':h<50?'Hungry':h<75?'Famished':'Starving',color:h<25?'#6a5a4a':h<50?'#c9a96e':h<75?'#e0a030':'#c94a4a'});
+                if(t>=10) items.push({label:t<25?'A Bit Dry':t<50?'Thirsty':t<75?'Parched':'Dehydrated',color:t<25?'#6a5a4a':t<50?'#c9a96e':t<75?'#e0a030':'#c94a4a'});
+                if(f>=15) items.push({label:f<30?'Slightly Tired':f<50?'Tired':f<75?'Exhausted':'Collapsing',color:f<30?'#6a5a4a':f<50?'#c9a96e':f<75?'#e0a030':'#c94a4a'});
                 if(items.length===0) return null;
                 return <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                   <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>CONDITION</div>
-                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{"⚠ "+label}</div>)}
+                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{(color==='#e0a030'||color==='#c94a4a'?'⚠ ':'')+label}</div>)}
                 </div>;
               })()}
+
+              {/* EQUIPPED ITEMS */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>EQUIPPED</div>
+                {(()=>{
+                  const eq = character.equipment || {};
+                  const filled = Object.entries(EQUIPMENT_SLOTS).filter(([slot])=>eq[slot]);
+                  if(filled.length===0) return <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>Nothing equipped</div>;
+                  return filled.map(([slot])=>(
+                    <div key={slot} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.1rem 0',fontSize:'0.68rem'}}>
+                      <span style={{color:pal.textAccent}}>{eq[slot]}</span>
+                      <span style={{color:pal.textMuted,fontSize:'0.55rem'}}>{EQUIPMENT_SLOTS[slot].label}</span>
+                    </div>
+                  ));
+                })()}
+              </div>
 
               {/* SKILLS */}
               {character.skills?.length>0&&(
