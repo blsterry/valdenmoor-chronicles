@@ -103,7 +103,7 @@ function slugifyPrompt(p) {
 const INITIAL_CHARACTER = {
   name: '', gender: 'they', backstory: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
   stats: { STR: 8, DEX: 8, INT: 8, WIS: 8, CON: 8, CHA: 8 },
-  hp: 20, maxHp: 20, mp: 10, maxMp: 10, gold: 15,
+  hp: 20, maxHp: 20, mp: 10, maxMp: 10, gold: 15, silver: 0, copper: 0,
   inventory: ["Worn Traveler's Cloak", 'Flint & Steel', 'Waterskin', '3x Hardtack'],
   spells: [],
   spellLearning: [],   // [{ spellId, spellName, stage, totalStages, teacherNpcId, partialNote }]
@@ -175,7 +175,15 @@ const GameEngine = {
 
     if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
     if (sc.mp != null)   c.mp   = Math.max(0, Math.min(sc.mp, c.maxMp));
-    if (sc.gold != null) c.gold = Math.max(0, sc.gold);
+    // Currency deltas (goldDelta/silverDelta/copperDelta) — normalize via total copper
+    if (sc.goldDelta != null || sc.silverDelta != null || sc.copperDelta != null) {
+      const totalCopper = (c.gold || 0) * 100 + (c.silver || 0) * 10 + (c.copper || 0)
+        + (sc.goldDelta || 0) * 100 + (sc.silverDelta || 0) * 10 + (sc.copperDelta || 0);
+      const clamped = Math.max(0, totalCopper);
+      c.gold   = Math.floor(clamped / 100);
+      c.silver = Math.floor((clamped % 100) / 10);
+      c.copper = clamped % 10;
+    }
     if (sc.location)     c.location = sc.location;
 
     if (sc.addInventory?.length)    c.inventory = [...c.inventory, ...sc.addInventory];
@@ -219,14 +227,34 @@ const GameEngine = {
         xpToNext: sc.addSkill.xpToNext || 50,
         description: sc.addSkill.description || '',
         taughtBy: sc.addSkill.taughtBy || '',
+        practiceLevel: 0,
       };
-      // Only add if not already present
       if (!c.skills.some(s => s.id === newSkill.id)) {
         c.skills = [...c.skills, newSkill];
       }
     }
 
-    // Skill XP award
+    // Self-taught (emergent) skill acquisition
+    if (sc.emergentSkill) {
+      const newSkill = {
+        id: sc.emergentSkill.id || sc.emergentSkill.name?.toLowerCase().replace(/\s+/g, '_'),
+        name: sc.emergentSkill.name,
+        tier: 1,
+        tierName: 'Self-taught',
+        xp: 0,
+        xpToNext: sc.emergentSkill.xpToNext || 50,
+        description: sc.emergentSkill.description || '',
+        taughtBy: 'Self-taught',
+        selfTaught: true,
+        practiceLevel: 0,
+      };
+      if (!c.skills.some(s => s.id === newSkill.id)) {
+        c.skills = [...c.skills, newSkill];
+        skillNotices.push({ type: 'emergent', msg: `📖 You've picked up basic ${newSkill.name} through experience!` });
+      }
+    }
+
+    // Skill XP award + practice growth
     if (sc.skillXP) {
       const { skillId, amount } = sc.skillXP;
       const idx = c.skills.findIndex(s => s.id === skillId);
@@ -234,6 +262,15 @@ const GameEngine = {
         const skills = [...c.skills];
         const sk = { ...skills[idx] };
         sk.xp = (sk.xp || 0) + (amount || 0);
+        // Practice growth: increment practiceLevel at 33% and 66% of xpToNext
+        if (sk.xpToNext) {
+          const pct = sk.xp / sk.xpToNext;
+          const newPractice = pct >= 0.66 ? 2 : pct >= 0.33 ? 1 : 0;
+          if (newPractice > (sk.practiceLevel || 0)) {
+            sk.practiceLevel = newPractice;
+            skillNotices.push({ type: 'practice', msg: `📈 Your ${sk.name} has improved through practice!` });
+          }
+        }
         if (sk.xpToNext && sk.xp >= sk.xpToNext) {
           skillNotices.push({ type: 'skillready', msg: `⚔ ${sk.name} is ready to advance — seek a teacher or prove your mastery!` });
         }
@@ -255,6 +292,8 @@ const GameEngine = {
           xp: updated.xp ?? 0,
           xpToNext: updated.xpToNext,
           description: updated.description || skills[idx].description,
+          practiceLevel: 0,  // Reset on tier advance
+          selfTaught: updated.tier > 1 ? false : skills[idx].selfTaught,  // Clear self-taught on advancement
         };
         c.skills = skills;
       }
@@ -397,6 +436,8 @@ function Notification({ notification }) {
     spellstage: { bg: '#4a3a7a', color: '#d0b8ff' },
     skill:      { bg: '#3a6a5a', color: '#fff' },
     skillready: { bg: '#2a4a3a', color: '#8fc47a' },
+    practice:   { bg: '#2a4a3a', color: '#8fc47a' },
+    emergent:   { bg: '#3a4a2a', color: '#c9d96e' },
     waypoint:   { bg: '#2a3a5a', color: '#7aafd4' },
     travel:     { bg: '#1a2a3a', color: '#5a8aaa' },
     info:       { bg: '#2a3a5a', color: '#fff' },
@@ -420,10 +461,11 @@ function PanelButton({ icon, label, active, onClick }) {
 function SkillProgressBar({ skill }) {
   const pct = skill.xpToNext ? Math.min(100, ((skill.xp || 0) / skill.xpToNext) * 100) : 100;
   const isReady = skill.xpToNext && (skill.xp || 0) >= skill.xpToNext;
+  const practice = skill.practiceLevel || 0;
   return (
     <div style={{marginBottom:'0.55rem',paddingBottom:'0.5rem',borderBottom:'1px solid rgba(201,169,110,0.08)'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:'0.2rem'}}>
-        <span style={{color:'#c9a96e',fontSize:'0.82rem'}}>⚔ {skill.name}</span>
+        <span style={{color:'#c9a96e',fontSize:'0.82rem'}}>⚔ {skill.name}{skill.selfTaught?' *':''}</span>
         <span style={{color:isReady?'#8fc47a':'#4a5a3a',fontSize:'0.65rem'}}>{isReady ? '★ Ready to advance' : `Tier ${skill.tier || 1}`}</span>
       </div>
       <div style={{color:'#7a6a5a',fontSize:'0.72rem',marginBottom:'0.2rem',fontStyle:'italic'}}>{skill.tierName || '—'}</div>
@@ -433,8 +475,13 @@ function SkillProgressBar({ skill }) {
           <div style={{width:`${pct}%`,height:'100%',background:isReady?'#8fc47a':'#4a6a5a',transition:'width 0.5s',borderRadius:'2px'}}/>
         </div>
         <span style={{fontSize:'0.62rem',color:'#4a3a2a'}}>{skill.xp || 0}/{skill.xpToNext || '—'}</span>
+        {/* Practice pips */}
+        <span style={{display:'flex',gap:'2px'}}>
+          {[0,1].map(i=><span key={i} style={{display:'inline-block',width:'6px',height:'6px',borderRadius:'50%',background:i<practice?'#8fc47a':'rgba(255,255,255,0.1)'}}/>)}
+        </span>
       </div>
       {skill.taughtBy && <div style={{color:'#3a2a1a',fontSize:'0.62rem',marginTop:'0.15rem',fontStyle:'italic'}}>Taught by {skill.taughtBy}</div>}
+      {skill.selfTaught && <div style={{color:'#6a5a3a',fontSize:'0.58rem',marginTop:'0.1rem',fontStyle:'italic'}}>Self-taught (requires teacher to advance)</div>}
     </div>
   );
 }
@@ -463,6 +510,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
   const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
   const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
+  const [isDesktop, setIsDesktop]         = useState(() => typeof window !== 'undefined' && window.innerWidth >= 900);
   const [tempGender, setTempGender]       = useState('they');
   const [tempBackstory, setTempBackstory] = useState('');
   const [tempQuestType, setTempQuestType] = useState('');
@@ -474,6 +522,11 @@ export default function Game({ user, onLogout, onAdmin }) {
   const logEndRef = useRef(null);
 
   useEffect(() => { logEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [displayLog, loading]);
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth >= 900);
+    window.addEventListener('resize', handler);
+    return () => window.removeEventListener('resize', handler);
+  }, []);
 
   const showNotif = useCallback((msg, type = 'info', duration = 4000) => {
     setNotification({ msg, type });
@@ -798,6 +851,23 @@ export default function Game({ user, onLogout, onAdmin }) {
     });
   };
 
+  const spendStatPoint = (stat) => {
+    setCharacter(prev => {
+      if (!prev || prev.statPoints <= 0 || prev.stats[stat] >= 20) return prev;
+      const oldMod = Math.floor((prev.stats[stat] - 10) / 2);
+      const newMod = Math.floor((prev.stats[stat] + 1 - 10) / 2);
+      const updated = {
+        ...prev,
+        stats: { ...prev.stats, [stat]: prev.stats[stat] + 1 },
+        statPoints: prev.statPoints - 1,
+      };
+      if (stat === 'CON' && newMod > oldMod) { updated.maxHp = prev.maxHp + 1; updated.hp = prev.hp + 1; }
+      if (stat === 'INT' && newMod > oldMod) { updated.maxMp = prev.maxMp + 1; updated.mp = prev.mp + 1; }
+      persistSave(updated, messages, displayLog, mood, options, currentScene);
+      return updated;
+    });
+  };
+
   const finalizeCharacter = () => {
     const derived = GameEngine.computeDerivedStats(statAlloc.stats);
     const char = { ...statAlloc, ...derived, hp: derived.maxHp, mp: derived.maxMp, statPoints: 0 };
@@ -1046,7 +1116,7 @@ export default function Game({ user, onLogout, onAdmin }) {
     };
 
     return (
-      <div style={{background:pal.mainBg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:pal.textMain,transition:'background 2s ease',maxWidth:'860px',margin:'0 auto'}}>
+      <div style={{background:pal.mainBg,minHeight:'100vh',display:'flex',flexDirection:'column',fontFamily:'Georgia, serif',color:pal.textMain,transition:'background 2s ease',maxWidth:isDesktop?'1140px':'860px',margin:'0 auto'}}>
         {/* Placeholder color can't be set via inline styles — inject a style tag based on mode */}
         <style>{`input::placeholder { color: ${lightMode ? 'rgba(80,52,16,0.58)' : 'rgba(180,155,110,0.5)'}; }`}</style>
         <Notification notification={notification}/>
@@ -1183,7 +1253,9 @@ export default function Game({ user, onLogout, onAdmin }) {
               </span>
             </div>
             <div style={{display:'flex',alignItems:'center',gap:'0.75rem'}}>
-              <span style={{color:pal.textAccent,fontSize:'0.92rem'}}>💰 {character.gold}g</span>
+              <span style={{color:pal.textAccent,fontSize:'0.92rem',cursor:'pointer'}} onClick={()=>setPanel(p=>p==='Purse'?null:'Purse')} title="Open Purse">
+                💰 {character.gold}g{(character.silver||0)>0?` ${character.silver}s`:''}{(character.copper||0)>0?` ${character.copper}c`:''}
+              </span>
               {onAdmin && <button onClick={onAdmin} style={{background:'transparent',border:'none',color:pal.textMuted,cursor:'pointer',fontSize:'0.65rem',fontFamily:'Georgia, serif'}}>admin</button>}
               {/* Settings */}
               <div style={{position:'relative'}}>
@@ -1228,13 +1300,22 @@ export default function Game({ user, onLogout, onAdmin }) {
               </div>
             </div>
           </div>
-          <div style={{display:'flex',gap:'0.75rem',flexWrap:'wrap',alignItems:'center'}}>
-            <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
-            <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
-            <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
-          </div>
+          {!isDesktop && (
+            <div style={{display:'flex',gap:'0.75rem',flexWrap:'wrap',alignItems:'center'}}>
+              <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
+              <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
+              <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
+            </div>
+          )}
+          {!isDesktop && (() => {
+            const needs = needsLabel(character.hunger, character.thirst, character.fatigue);
+            return needs ? <div style={{color:needs.includes('⚠')?'#c94a4a':pal.textMuted,fontSize:'0.65rem',fontStyle:'italic'}}>{needs}</div> : null;
+          })()}
           <div style={{display:'flex',gap:'0.35rem',flexWrap:'wrap'}}>
-            {[['📊','Stats'],['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore']].map(([icon,label])=>(
+            {(isDesktop
+              ? [['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore'],['💰','Purse']]
+              : [['📊','Stats'],['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore'],['💰','Purse']]
+            ).map(([icon,label])=>(
               <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
             ))}
             <PanelButton icon="🗺" label="Map" active={false} onClick={() => setShowMap(true)}/>
@@ -1263,14 +1344,18 @@ export default function Game({ user, onLogout, onAdmin }) {
                 <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.5rem',maxWidth:'400px'}}>
                   {Object.entries(character.stats).map(([s,v])=>{
                     const mod=Math.floor((v-10)/2);
-                    return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:`1px solid ${pal.panelBorder}`}}>
+                    return <div key={s} style={{textAlign:'center',padding:'0.4rem',border:`1px solid ${pal.panelBorder}`,position:'relative'}}>
                       <div style={{color:pal.textMuted,fontSize:'0.6rem',letterSpacing:'0.1em'}}>{s}</div>
                       <div style={{color:pal.textAccent,fontSize:'1.2rem'}}>{v}</div>
                       <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.65rem'}}>{mod>=0?'+':''}{mod}</div>
+                      {character.statPoints>0&&v<20&&(
+                        <button onClick={()=>spendStatPoint(s)}
+                          style={{position:'absolute',top:'-4px',right:'-4px',background:'#c9a96e',color:'#1a1a2e',border:'none',borderRadius:'50%',width:'18px',height:'18px',fontSize:'0.7rem',cursor:'pointer',lineHeight:'18px',padding:0,fontWeight:'bold'}}>+</button>
+                      )}
                     </div>;
                   })}
                 </div>
-                {character.statPoints>0&&<div style={{color:pal.textAccent,fontSize:'0.8rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} unspent stat points — tell the GM!</div>}
+                {character.statPoints>0&&<div style={{color:pal.textAccent,fontSize:'0.78rem',marginTop:'0.5rem'}}>⬆ {character.statPoints} point{character.statPoints>1?'s':''} to spend — tap + on a stat</div>}
                 <div style={{marginTop:'0.5rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
                   {(()=>{
                     const p = character.gender==='he'?'he/him':character.gender==='she'?'she/her':'they/them';
@@ -1388,62 +1473,165 @@ export default function Game({ user, onLogout, onAdmin }) {
                   </>
                 )}
               </>)}
+              {panel==='Purse'&&(<>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.75rem'}}>COIN PURSE</div>
+                {[
+                  ['Gold',   character.gold   || 0, 'gp', '#c9a96e'],
+                  ['Silver', character.silver  || 0, 'sp', '#9a9aaa'],
+                  ['Copper', character.copper  || 0, 'cp', '#b87333'],
+                ].map(([label, val, abbr, color])=>(
+                  <div key={abbr} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.3rem 0',borderBottom:`1px solid rgba(201,169,110,0.1)`}}>
+                    <span style={{color:pal.textMuted,fontSize:'0.8rem'}}>{label}</span>
+                    <span style={{color,fontSize:'1rem',fontWeight:'bold'}}>{val} <span style={{fontSize:'0.72rem',opacity:0.8}}>{abbr}</span></span>
+                  </div>
+                ))}
+                <div style={{marginTop:'1rem',color:'#4a3a2a',fontSize:'0.68rem',lineHeight:'1.6'}}>
+                  1 gold = 10 silver = 100 copper<br/>
+                  Meal: 2–4cp · Bed: 3–6cp · Dagger: 15cp<br/>
+                  Quality inn room+meal: 5–8cp
+                </div>
+              </>)}
 
               </div>
             </div>
           </div>
         )}
 
-        {/* NARRATIVE LOG */}
-        <div style={{flex:1,overflowY:'auto'}} onClick={()=>showSettings&&setShowSettings(false)}>
-          {displayLog.map((entry,i)=>{
-            if (entry.hidden) return null;
-            if (entry.type==='player') return (
-              <div key={i} style={{padding:'0.6rem 1rem',marginBottom:'0.25rem'}}>
-                <div style={{display:'flex',alignItems:'flex-start',gap:'0.5rem',padding:'0.5rem 0.75rem',background:pal.logEntryBg,borderLeft:'2px solid rgba(201,169,110,0.4)'}}>
-                  <span style={{color:pal.textMuted,fontSize:'0.68rem',marginTop:'0.2rem',whiteSpace:'nowrap'}}>You</span>
-                  <span style={{color:lightMode?'#5a3a10':'#b09a70',fontStyle:'italic',fontSize:'0.88rem',lineHeight:'1.6'}}>{entry.text}</span>
-                </div>
-              </div>
-            );
-            const entryTheme = MOOD_THEMES[entry.mood] || MOOD_THEMES.mysterious;
-            return (
-              <div key={i} style={{marginBottom:'0.5rem'}}>
-                {entry.scenePrompt && (() => {
-                  const imgKey = slugifyPrompt(entry.scenePrompt);
-                  return sceneImages[imgKey]
-                    ? <img src={sceneImages[imgKey]} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'240px',objectFit:'cover',borderBottom:`1px solid ${entryTheme.accent}33`}}/>
-                    : <div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>;
-                })()}
-                {entry.npcIds?.length > 0 && entry.npcIds.some(id => npcPortraits[id]) && (
-                  <div style={{display:'flex',gap:'0.4rem',padding:'0.35rem 0.6rem',background:'rgba(0,0,0,0.3)',flexWrap:'wrap',alignItems:'flex-end'}}>
-                    {entry.npcIds.filter(id => npcPortraits[id]).map(id => (
-                      <div key={id} style={{textAlign:'center'}}>
-                        <img src={npcPortraits[id]} alt={id} style={{width:'52px',height:'52px',objectFit:'cover',border:`1px solid ${entryTheme.accent}44`,display:'block'}}/>
-                        <div style={{color:'#6a5a4a',fontSize:'0.58rem',marginTop:'0.1rem'}}>{id.replace(/_/g,' ')}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div style={{padding:'1rem 1rem 0.75rem',background:pal.logEntryBg,borderLeft:`2px solid ${entryTheme.accent}33`}}>
-                  <div style={{lineHeight:'1.95',fontSize:'0.92rem',color:pal.textMain,whiteSpace:'pre-wrap'}}>{entry.text}</div>
-                </div>
-              </div>
-            );
-          })}
-          {loading&&<div style={{textAlign:'center',padding:'1.5rem',color:lightMode?'#7a5a2a':'#4a3a5a',fontStyle:'italic',fontSize:'0.85rem',letterSpacing:'0.1em'}}>✦ &nbsp; the oracle stirs &nbsp; ✦</div>}
-          <div ref={logEndRef}/>
-        </div>
+        {/* MAIN CONTENT: sidebar (desktop) + narrative */}
+        <div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
-        {/* INPUT */}
-        <div style={{padding:'0.5rem 0.75rem 0.6rem',background:pal.inputBg,borderTop:`2px solid ${pal.inputBorder}`}}>
-          <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
-            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
-              placeholder="What do you do?"
-              disabled={loading}
-              style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${pal.inputBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
-            <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()}
-              style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.inputBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+          {/* SIDEBAR — desktop only */}
+          {isDesktop && (
+            <div style={{width:'260px',minWidth:'260px',overflowY:'auto',borderRight:`1px solid ${pal.headerBorder}`,background:pal.headerBg,padding:'0.6rem 0.7rem',display:'flex',flexDirection:'column',gap:'0.6rem',fontSize:'0.78rem'}}>
+              {/* HP / MP / XP */}
+              <div style={{display:'flex',flexDirection:'column',gap:'0.35rem'}}>
+                <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
+                <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
+                <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
+              </div>
+
+              {/* CURRENCY */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>PURSE</div>
+                <div style={{display:'flex',gap:'0.6rem',alignItems:'baseline'}}>
+                  <span style={{color:'#c9a96e'}}>{character.gold||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> gp</span></span>
+                  <span style={{color:'#9a9aaa'}}>{character.silver||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> sp</span></span>
+                  <span style={{color:'#b87333'}}>{character.copper||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> cp</span></span>
+                </div>
+              </div>
+
+              {/* STATS */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>
+                  STATS{character.statPoints>0&&<span style={{color:'#c9a96e',marginLeft:'0.4rem'}}>({character.statPoints} to spend)</span>}
+                </div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.3rem'}}>
+                  {Object.entries(character.stats).map(([s,v])=>{
+                    const mod=Math.floor((v-10)/2);
+                    return <div key={s} style={{textAlign:'center',padding:'0.25rem',border:`1px solid ${pal.panelBorder}`,position:'relative'}}>
+                      <div style={{color:pal.textMuted,fontSize:'0.55rem',letterSpacing:'0.08em'}}>{s}</div>
+                      <div style={{color:pal.textAccent,fontSize:'1rem'}}>{v}</div>
+                      <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.58rem'}}>{mod>=0?'+':''}{mod}</div>
+                      {character.statPoints>0&&v<20&&(
+                        <button onClick={()=>spendStatPoint(s)}
+                          style={{position:'absolute',top:'-2px',right:'-2px',background:'#c9a96e',color:'#1a1a2e',border:'none',borderRadius:'50%',width:'16px',height:'16px',fontSize:'0.65rem',cursor:'pointer',lineHeight:'16px',padding:0,fontWeight:'bold'}}>+</button>
+                      )}
+                    </div>;
+                  })}
+                </div>
+              </div>
+
+              {/* CONDITION (needs) */}
+              {(()=>{
+                const h=character.hunger||0, t=character.thirst||0, f=character.fatigue||0;
+                const items = [];
+                if(h>=25) items.push({label:h<50?'Hungry':h<75?'Famished':'Starving',color:h<50?'#c9a96e':h<75?'#e0a030':'#c94a4a'});
+                if(t>=25) items.push({label:t<50?'Thirsty':t<75?'Parched':'Dehydrated',color:t<50?'#c9a96e':t<75?'#e0a030':'#c94a4a'});
+                if(f>=25) items.push({label:f<50?'Tired':f<75?'Exhausted':'Collapsing',color:f<50?'#c9a96e':f<75?'#e0a030':'#c94a4a'});
+                if(items.length===0) return null;
+                return <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                  <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>CONDITION</div>
+                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{"⚠ "+label}</div>)}
+                </div>;
+              })()}
+
+              {/* SKILLS */}
+              {character.skills?.length>0&&(
+                <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
+                  <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>SKILLS</div>
+                  {character.skills.map(sk=>(
+                    <div key={sk.id} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.15rem 0',fontSize:'0.72rem'}}>
+                      <span style={{color:pal.textAccent}}>{sk.name}{sk.selfTaught?' *':''}</span>
+                      <span style={{color:pal.textMuted,fontSize:'0.62rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* GAME TIME */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem',color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic'}}>
+                {(()=>{
+                  const gt = formatGameTime(character.gameMinutes || 0);
+                  return `Day ${gt.dayNum} · ${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm}`;
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* NARRATIVE + INPUT column */}
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            {/* NARRATIVE LOG */}
+            <div style={{flex:1,overflowY:'auto'}} onClick={()=>showSettings&&setShowSettings(false)}>
+              {displayLog.map((entry,i)=>{
+                if (entry.hidden) return null;
+                if (entry.type==='player') return (
+                  <div key={i} style={{padding:'0.6rem 1rem',marginBottom:'0.25rem'}}>
+                    <div style={{display:'flex',alignItems:'flex-start',gap:'0.5rem',padding:'0.5rem 0.75rem',background:pal.logEntryBg,borderLeft:'2px solid rgba(201,169,110,0.4)'}}>
+                      <span style={{color:pal.textMuted,fontSize:'0.68rem',marginTop:'0.2rem',whiteSpace:'nowrap'}}>You</span>
+                      <span style={{color:lightMode?'#5a3a10':'#b09a70',fontStyle:'italic',fontSize:'0.88rem',lineHeight:'1.6'}}>{entry.text}</span>
+                    </div>
+                  </div>
+                );
+                const entryTheme = MOOD_THEMES[entry.mood] || MOOD_THEMES.mysterious;
+                return (
+                  <div key={i} style={{marginBottom:'0.5rem'}}>
+                    {entry.scenePrompt && (() => {
+                      const imgKey = slugifyPrompt(entry.scenePrompt);
+                      return sceneImages[imgKey]
+                        ? <img src={sceneImages[imgKey]} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'240px',objectFit:'cover',borderBottom:`1px solid ${entryTheme.accent}33`}}/>
+                        : <div style={{opacity:0.92}}><SceneIllustration prompt={entry.scenePrompt} mood={entry.mood||'mysterious'}/></div>;
+                    })()}
+                    {entry.npcIds?.length > 0 && entry.npcIds.some(id => npcPortraits[id]) && (
+                      <div style={{display:'flex',gap:'0.4rem',padding:'0.35rem 0.6rem',background:'rgba(0,0,0,0.3)',flexWrap:'wrap',alignItems:'flex-end'}}>
+                        {entry.npcIds.filter(id => npcPortraits[id]).map(id => (
+                          <div key={id} style={{textAlign:'center'}}>
+                            <img src={npcPortraits[id]} alt={id} style={{width:'52px',height:'52px',objectFit:'cover',border:`1px solid ${entryTheme.accent}44`,display:'block'}}/>
+                            <div style={{color:'#6a5a4a',fontSize:'0.58rem',marginTop:'0.1rem'}}>{id.replace(/_/g,' ')}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{padding:'1rem 1rem 0.75rem',background:pal.logEntryBg,borderLeft:`2px solid ${entryTheme.accent}33`}}>
+                      <div style={{lineHeight:'1.95',fontSize:'0.92rem',color:pal.textMain,whiteSpace:'pre-wrap'}}>{entry.text}</div>
+                    </div>
+                  </div>
+                );
+              })}
+              {loading&&<div style={{textAlign:'center',padding:'1.5rem',color:lightMode?'#7a5a2a':'#4a3a5a',fontStyle:'italic',fontSize:'0.85rem',letterSpacing:'0.1em'}}>✦ &nbsp; the oracle stirs &nbsp; ✦</div>}
+              <div ref={logEndRef}/>
+            </div>
+
+            {/* INPUT */}
+            <div style={{padding:'0.5rem 0.75rem 0.6rem',background:pal.inputBg,borderTop:`2px solid ${pal.inputBorder}`}}>
+              <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
+                <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
+                  placeholder="What do you do?"
+                  disabled={loading}
+                  style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${pal.inputBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
+                <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()}
+                  style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.inputBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+              </div>
+            </div>
           </div>
         </div>
 
