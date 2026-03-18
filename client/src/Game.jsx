@@ -1322,6 +1322,9 @@ export default function Game({ user, onLogout, onAdmin }) {
               {isDesktop && <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
                 {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
               </span>}
+              {isDesktop && [['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore']].map(([icon,label])=>(
+                <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
+              ))}
               {!isDesktop && <span style={{color:pal.textAccent,fontSize:'0.92rem',cursor:'pointer'}} onClick={()=>setPanel(p=>p==='Purse'?null:'Purse')} title="Open Purse">
                 💰 {character.gold}g{(character.silver||0)>0?` ${character.silver}s`:''}{(character.copper||0)>0?` ${character.copper}c`:''}
               </span>}
@@ -1380,15 +1383,12 @@ export default function Game({ user, onLogout, onAdmin }) {
             const needs = needsLabel(character.hunger, character.thirst, character.fatigue);
             return needs ? <div style={{color:needs.includes('⚠')?'#c94a4a':pal.textMuted,fontSize:'0.65rem',fontStyle:'italic'}}>{needs}</div> : null;
           })()}
-          <div style={{display:'flex',gap:'0.35rem',flexWrap:'wrap'}}>
-            {(isDesktop
-              ? [['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore']]
-              : [['📊','Stats'],['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore'],['💰','Purse']]
-            ).map(([icon,label])=>(
+          {!isDesktop && <div style={{display:'flex',gap:'0.35rem',flexWrap:'wrap'}}>
+            {[['📊','Stats'],['🎒','Pack'],['⚔','Skills'],['✨','Spells'],['📜','Lore'],['💰','Purse']].map(([icon,label])=>(
               <PanelButton key={label} icon={icon} label={label} active={panel===label} onClick={()=>setPanel(p=>p===label?null:label)}/>
             ))}
             <PanelButton icon="🗺" label="Map" active={false} onClick={() => setShowMap(true)}/>
-          </div>
+          </div>}
         </div>
 
         {/* PANEL OVERLAY — fixed drawer so panels don't displace the log or force scrolling */}
@@ -1606,6 +1606,16 @@ export default function Game({ user, onLogout, onAdmin }) {
               <div>
                 <div style={{color:pal.textAccent,fontSize:'1.05rem'}}>{character.name}</div>
                 <div style={{color:pal.textMuted,fontSize:'0.72rem'}}>Level {character.level} · {character.race}</div>
+              </div>
+
+              {/* QUICK ACCESS BUTTONS */}
+              <div style={{display:'flex',gap:'0.3rem'}}>
+                {[['📊','Stats'],['🗺','Map'],['✨','Spells']].map(([icon,label])=>(
+                  <button key={label} onClick={()=>label==='Map'?setShowMap(true):setPanel(p=>p===label?null:label)}
+                    style={{flex:1,background:(panel===label)?'rgba(201,169,110,0.2)':'transparent',border:`1px solid ${(panel===label)?'rgba(201,169,110,0.6)':'rgba(201,169,110,0.25)'}`,color:(panel===label)?'#e8c87a':'#8a7a5a',padding:'0.3rem 0',cursor:'pointer',fontSize:'0.75rem',fontFamily:'Georgia, serif',textAlign:'center',transition:'all 0.15s'}}>
+                    {icon} {label}
+                  </button>
+                ))}
               </div>
 
               {/* HP / MP / XP */}
