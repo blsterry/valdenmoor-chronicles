@@ -690,6 +690,11 @@ app.post('/api/gm', auth, async (req, res) => {
     if (!response.ok) {
       const err = await response.text();
       console.error('Anthropic error:', err);
+      // Pass rate limit info to client
+      if (response.status === 429 || err.includes('rate_limit')) {
+        const retryAfter = response.headers.get('retry-after');
+        return res.status(429).json({ error: 'rate_limit', retryAfter: retryAfter ? parseInt(retryAfter) : 60 });
+      }
       return res.status(502).json({ error: 'GM unavailable' });
     }
 

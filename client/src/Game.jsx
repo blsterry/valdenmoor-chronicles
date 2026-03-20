@@ -590,6 +590,8 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [npcPortraits, setNpcPortraits] = useState({});   // { npcId: base64png }
   const [imgConfirm, setImgConfirm]     = useState(null); // { type: 'all'|'current' } or null
   const [useGenericImage, setUseGenericImage] = useState(() => localStorage.getItem('vrc-generic-image') === 'true');
+  const [cooldown, setCooldown]         = useState(0);   // seconds until GM available again
+  const cooldownRef = useRef(null);
   const imageGenerating                 = useRef(new Set());
   const lastSceneByLocation             = useRef({});   // { locationId: entityId } for visual continuity
   const logEndRef = useRef(null);
@@ -690,8 +692,10 @@ export default function Game({ user, onLogout, onAdmin }) {
     const playerEntry = { type: 'player', text: userText, hidden: isGameStart };
 
     try {
+      // Limit conversation history to last 10 messages to reduce token usage
+      const trimmedHistory = apiHistory.slice(-10);
       const parsed = await sendToGM(char, [
-        ...apiHistory,
+        ...trimmedHistory,
         { role: 'user', content: userText },
       ], npcStates);
 
@@ -784,17 +788,31 @@ export default function Game({ user, onLogout, onAdmin }) {
     } catch (err) {
       console.error('GM error:', err);
       if (err.message === 'Session expired') { onLogout(); return; }
-      const errEntry = { type: 'gm', text: "A strange silence falls... The oracle's voice fades. (Connection lost — please try again.)", mood: 'mysterious', scenePrompt: null };
-      setDisplayLog(prev => [...prev, errEntry]);
+      if (err.message === 'rate_limit') {
+        const wait = err.retryAfter || 60;
+        setCooldown(wait);
+        if (cooldownRef.current) clearInterval(cooldownRef.current);
+        cooldownRef.current = setInterval(() => {
+          setCooldown(prev => {
+            if (prev <= 1) { clearInterval(cooldownRef.current); cooldownRef.current = null; return 0; }
+            return prev - 1;
+          });
+        }, 1000);
+        const errEntry = { type: 'gm', text: `The oracle needs a moment to gather its thoughts... (Rate limit reached — please wait ${wait}s before your next action.)`, mood: 'mysterious', scenePrompt: null };
+        setDisplayLog(prev => [...prev, errEntry]);
+      } else {
+        const errEntry = { type: 'gm', text: "A strange silence falls... The oracle's voice fades. (Connection lost — please try again.)", mood: 'mysterious', scenePrompt: null };
+        setDisplayLog(prev => [...prev, errEntry]);
+      }
     }
     setLoading(false);
   }, [persistSave, showNotif, onLogout, npcStates, fetchSceneImage, fetchNpcPortrait]);
 
   const handleSend = useCallback((text) => {
-    if (!text?.trim() || loading || !character) return;
+    if (!text?.trim() || loading || !character || cooldown > 0) return;
     setInput('');
     callGM(character, messages, text.trim());
-  }, [loading, character, messages, callGM]);
+  }, [loading, character, messages, callGM, cooldown]);
 
   const handleFastTravel = useCallback(async (fromLoc, toLoc) => {
     if (!character || loading) return;
@@ -1866,10 +1884,10 @@ export default function Game({ user, onLogout, onAdmin }) {
             <div style={{padding:'0.5rem 0.75rem 0.6rem',background:pal.inputBg,borderTop:`2px solid ${pal.inputBorder}`}}>
               <div style={{display:'flex',gap:'0.5rem',alignItems:'center'}}>
                 <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend(input)}
-                  placeholder="What do you do?"
-                  disabled={loading}
-                  style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${pal.inputBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
-                <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()}
+                  placeholder={cooldown > 0 ? `The oracle rests... (${cooldown}s)` : "What do you do?"}
+                  disabled={loading || cooldown > 0}
+                  style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${cooldown > 0 ? '#c94a4a55' : pal.inputBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
+                <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()||cooldown>0}
                   style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.inputBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
               </div>
             </div>

@@ -202,7 +202,14 @@ export async function sendToGM(character, messages, npcStates = {}) {
   });
   if (res.status === 401) { logout(); throw new Error('Session expired'); }
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'GM error');
+  if (!res.ok) {
+    if (res.status === 429 || data.error === 'rate_limit') {
+      const err = new Error('rate_limit');
+      err.retryAfter = data.retryAfter || 60;
+      throw err;
+    }
+    throw new Error(data.error || 'GM error');
+  }
   return data.parsed;
 }
 
