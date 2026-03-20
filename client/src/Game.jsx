@@ -124,6 +124,7 @@ const INITIAL_CHARACTER = {
   waypoints: [],
   npcRelations: {},
   flags: {},
+  lore: [],            // [{ title, text, category }] — GM-driven discoveries
   dayCount: 1,
   questType: '',    // id from QUEST_TYPE_OPTIONS
   gameMinutes: 0,   // total elapsed game minutes (0 = Day 1, 18:00)
@@ -293,29 +294,32 @@ const GameEngine = {
       }
     }
 
-    // Skill XP award + practice growth
+    // Skill XP award + practice growth (supports single object or array)
     if (sc.skillXP) {
-      const { skillId, amount } = sc.skillXP;
-      const idx = c.skills.findIndex(s => s.id === skillId);
-      if (idx >= 0) {
-        const skills = [...c.skills];
-        const sk = { ...skills[idx] };
-        sk.xp = (sk.xp || 0) + (amount || 0);
-        // Practice growth: increment practiceLevel at 33% and 66% of xpToNext
-        if (sk.xpToNext) {
-          const pct = sk.xp / sk.xpToNext;
-          const newPractice = pct >= 0.66 ? 2 : pct >= 0.33 ? 1 : 0;
-          if (newPractice > (sk.practiceLevel || 0)) {
-            sk.practiceLevel = newPractice;
-            skillNotices.push({ type: 'practice', msg: `📈 Your ${sk.name} has improved through practice!` });
+      const xpAwards = Array.isArray(sc.skillXP) ? sc.skillXP : [sc.skillXP];
+      const skills = [...c.skills];
+      for (const award of xpAwards) {
+        const { skillId, amount } = award;
+        const idx = skills.findIndex(s => s.id === skillId);
+        if (idx >= 0) {
+          const sk = { ...skills[idx] };
+          sk.xp = (sk.xp || 0) + (amount || 0);
+          // Practice growth: increment practiceLevel at 33% and 66% of xpToNext
+          if (sk.xpToNext) {
+            const pct = sk.xp / sk.xpToNext;
+            const newPractice = pct >= 0.66 ? 2 : pct >= 0.33 ? 1 : 0;
+            if (newPractice > (sk.practiceLevel || 0)) {
+              sk.practiceLevel = newPractice;
+              skillNotices.push({ type: 'practice', msg: `📈 Your ${sk.name} has improved through practice!` });
+            }
           }
+          if (sk.xpToNext && sk.xp >= sk.xpToNext) {
+            skillNotices.push({ type: 'skillready', msg: `⚔ ${sk.name} is ready to advance — seek a teacher or prove your mastery!` });
+          }
+          skills[idx] = sk;
         }
-        if (sk.xpToNext && sk.xp >= sk.xpToNext) {
-          skillNotices.push({ type: 'skillready', msg: `⚔ ${sk.name} is ready to advance — seek a teacher or prove your mastery!` });
-        }
-        skills[idx] = sk;
-        c.skills = skills;
       }
+      c.skills = skills;
     }
 
     // Skill tier update (advancement)
@@ -355,6 +359,19 @@ const GameEngine = {
     }
 
     if (sc.addQuestFlag) c.flags = { ...c.flags, ...sc.addQuestFlag };
+
+    // GM lore entry
+    if (sc.loreEntry) {
+      const entry = sc.loreEntry;
+      c.lore = [...(c.lore || [])];
+      // Update existing entry with same title, or add new
+      const existing = c.lore.findIndex(l => l.title === entry.title);
+      if (existing >= 0) {
+        c.lore[existing] = { ...c.lore[existing], ...entry };
+      } else {
+        c.lore.push({ title: entry.title, text: entry.text, category: entry.category || 'general' });
+      }
+    }
 
     // GM stat modification
     if (sc.statBoost) {
@@ -1361,7 +1378,6 @@ export default function Game({ user, onLogout, onAdmin }) {
                   <div style={{position:'absolute',right:0,top:'calc(100% + 4px)',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,zIndex:300,minWidth:'175px',fontFamily:'Georgia, serif',boxShadow:'0 4px 16px rgba(0,0,0,0.5)'}}>
                     {[
                       [lightMode ? '☾ Dark Mode' : '☀ Light Mode', toggleLightMode],
-                      [useGenericImage ? '🖼 Scene Images On' : '🏔 Use Title Screen', ()=>{const nv=!useGenericImage;setUseGenericImage(nv);localStorage.setItem('vrc-generic-image',nv?'true':'false');}],
                       ['? How to Play', ()=>{setShowHowToPlay(true);setShowSettings(false);}],
                       ['🔑 Change Password', ()=>{setChangePwForm({old:'',new1:'',new2:''});setChangePwMsg({text:'',ok:false});setShowChangePw(true);setShowSettings(false);}],
                       ['↺ Start Over', ()=>{setShowSettings(false);handleNewGame();}],
@@ -1384,6 +1400,12 @@ export default function Game({ user, onLogout, onAdmin }) {
                         🖼 Refresh Scene Image
                       </button>
                     )}
+                    <button onClick={()=>{const nv=!useGenericImage;setUseGenericImage(nv);localStorage.setItem('vrc-generic-image',nv?'true':'false');}}
+                      style={{display:'block',width:'100%',background:'transparent',border:'none',borderBottom:`1px solid ${pal.settingsBorder}40`,color:pal.settingsText,padding:'0.55rem 0.9rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.78rem',textAlign:'left',transition:'background 0.1s'}}
+                      onMouseOver={e=>e.currentTarget.style.background='rgba(201,169,110,0.12)'}
+                      onMouseOut={e=>e.currentTarget.style.background='transparent'}>
+                      {useGenericImage ? '🖼 Show Scene Images' : '🏔 Show Title Screen'}
+                    </button>
                     <button onClick={()=>{setShowSettings(false);setImgConfirm({type:'all'});}}
                       style={{display:'block',width:'100%',background:'transparent',border:'none',color:pal.settingsText,padding:'0.55rem 0.9rem',cursor:'pointer',fontFamily:'Georgia, serif',fontSize:'0.78rem',textAlign:'left',transition:'background 0.1s'}}
                       onMouseOver={e=>e.currentTarget.style.background='rgba(201,169,110,0.12)'}
@@ -1561,11 +1583,35 @@ export default function Game({ user, onLogout, onAdmin }) {
               {/* ── LORE ── */}
               {panel==='Lore'&&(<>
                 <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>DISCOVERED KNOWLEDGE</div>
-                {Object.keys(character.flags).length===0
+                {(character.lore||[]).length === 0 && Object.keys(character.flags).filter(k=>!k.startsWith('grind_')&&!k.startsWith('_')).length === 0
                   ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Nothing noted yet. Investigate the world.</div>
-                  : Object.entries(character.flags).filter(([k])=>!k.startsWith('notable_')).map(([k,v])=>(
-                      <div key={k} style={{color:'#c9a96e',fontSize:'0.78rem',padding:'0.15rem 0'}}>· {k.replace(/_/g,' ')}: <span style={{color:'#6a5a4a'}}>{String(v)}</span></div>
-                    ))
+                  : <>
+                    {/* GM-driven lore entries grouped by category */}
+                    {(() => {
+                      const lore = character.lore || [];
+                      const categories = [...new Set(lore.map(l => l.category || 'general'))];
+                      return categories.map(cat => (
+                        <div key={cat}>
+                          <div style={{color:pal.textAccent,fontSize:'0.6rem',letterSpacing:'0.08em',marginTop:'0.5rem',marginBottom:'0.2rem',textTransform:'uppercase'}}>{cat}</div>
+                          {lore.filter(l => (l.category||'general') === cat).map((l,i) => (
+                            <div key={i} style={{padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
+                              <div style={{color:pal.textAccent,fontSize:'0.75rem',fontWeight:'bold'}}>{l.title}</div>
+                              <div style={{color:pal.textMuted,fontSize:'0.72rem',lineHeight:'1.5',marginTop:'0.1rem'}}>{l.text}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ));
+                    })()}
+                    {/* Quest flags */}
+                    {Object.entries(character.flags).filter(([k])=>!k.startsWith('grind_')&&!k.startsWith('_')&&!k.startsWith('notable_')).length > 0 && (
+                      <div style={{marginTop:'0.5rem'}}>
+                        <div style={{color:'#6a5a4a',fontSize:'0.6rem',letterSpacing:'0.08em',marginBottom:'0.2rem'}}>QUEST NOTES</div>
+                        {Object.entries(character.flags).filter(([k])=>!k.startsWith('grind_')&&!k.startsWith('_')&&!k.startsWith('notable_')).map(([k,v])=>(
+                          <div key={k} style={{color:'#c9a96e',fontSize:'0.72rem',padding:'0.1rem 0'}}>· {k.replace(/_/g,' ')}: <span style={{color:'#6a5a4a'}}>{String(v)}</span></div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 }
                 <div style={{marginTop:'0.75rem',color:'#6a5a4a',fontSize:'0.65rem',letterSpacing:'0.1em'}}>KNOWN LOCATIONS</div>
                 {character.knownLocations.map(loc=>(
