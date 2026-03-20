@@ -4,6 +4,13 @@ import { useState, useCallback } from 'react';
 // Mirrors server/lore.js MAP_DATA — keep in sync if locations change.
 
 // Coordinates scaled for 800x600 viewBox (original 640x480 × 1.25)
+// Sub-locations (points of interest within main locations — shown when parent is known)
+const SUB_LOCATIONS = [
+  { id: 'seras_cabin',     name: "Sera's Cabin",     x: 255, y: 435, parent: 'whisperwood', type: 'landmark' },
+  { id: 'witchs_circle',   name: "Witch's Circle",   x: 310, y: 468, parent: 'whisperwood', type: 'special' },
+  { id: 'rusted_compass',  name: 'Rusted Compass Inn',x: 388, y: 340, parent: 'crossroads',  type: 'landmark' },
+];
+
 const LOCATIONS = [
   { id: 'crossroads',      name: 'The Crossroads',             x: 375, y: 350, type: 'landmark'   },
   { id: 'thornhaven',      name: 'Thornhaven',                 x: 312, y: 225, type: 'village'    },
@@ -294,11 +301,65 @@ export default function WorldMap({ character, onFastTravel, onSetWaypoint, onClo
               <line key={`gv${i}`} x1={i*40} y1="0" x2={i*40} y2="600" stroke="rgba(201,169,110,0.03)" strokeWidth="0.5"/>
             ))}
 
+            {/* Terrain: Whisperwood forest */}
+            {[
+              [255,420],[270,440],[240,455],[300,460],[220,470],[280,480],[260,500],[235,435],[310,445],[295,475],
+              [245,490],[275,510],[250,525],[215,445],[320,455],
+            ].map(([cx,cy],i)=>(
+              <circle key={`tree${i}`} cx={cx} cy={cy} r={6+Math.random()*3} fill="rgba(40,90,50,0.15)" stroke="rgba(40,90,50,0.08)" strokeWidth="0.5"/>
+            ))}
+            <text x="270" y="470" textAnchor="middle" fontSize="7" fill="rgba(40,90,50,0.25)" fontFamily="Georgia, serif" fontStyle="italic">Whisperwood</text>
+
+            {/* Terrain: High Moors (rolling hills) */}
+            <path d="M120,90 Q150,70 180,90 Q210,70 240,90" fill="none" stroke="rgba(140,130,100,0.15)" strokeWidth="1.5"/>
+            <path d="M130,105 Q160,85 190,105 Q220,85 250,105" fill="none" stroke="rgba(140,130,100,0.1)" strokeWidth="1"/>
+            <text x="190" y="80" textAnchor="middle" fontSize="6" fill="rgba(140,130,100,0.2)" fontFamily="Georgia, serif" fontStyle="italic">moors</text>
+
+            {/* Terrain: River (flows south from moors past Thornhaven toward coast) */}
+            <path d="M340,50 Q330,120 310,180 Q300,240 320,300 Q350,380 400,420 Q480,470 560,490 Q620,500 700,510"
+              fill="none" stroke="rgba(70,110,160,0.2)" strokeWidth="2.5" strokeLinecap="round"/>
+            <path d="M340,50 Q330,120 310,180 Q300,240 320,300 Q350,380 400,420 Q480,470 560,490 Q620,500 700,510"
+              fill="none" stroke="rgba(90,140,200,0.08)" strokeWidth="6" strokeLinecap="round"/>
+
+            {/* Terrain: Mountains (west) */}
+            {[[130,200],[145,185],[160,205],[115,215],[175,195]].map(([cx,cy],i)=>(
+              <polygon key={`mt${i}`} points={`${cx},${cy-12} ${cx-8},${cy+4} ${cx+8},${cy+4}`} fill="rgba(120,110,100,0.15)" stroke="rgba(120,110,100,0.1)" strokeWidth="0.5"/>
+            ))}
+
+            {/* Terrain: Coast (east edge) */}
+            <path d="M680,200 Q700,250 690,320 Q680,400 700,460 Q710,520 690,580"
+              fill="none" stroke="rgba(70,120,170,0.15)" strokeWidth="3" strokeDasharray="8,4"/>
+
+            {/* Road name labels */}
+            {ROADS.map((r,i)=>{
+              const a=getLocation(r[0]),b=getLocation(r[1]);
+              if(!a||!b) return null;
+              const aK=knownLocations.has(a.id),bK=knownLocations.has(b.id);
+              if(!aK&&!bK) return null;
+              const roadNames={'crossroads-thornhaven':'North Road','thornhaven-redgate':'North Road','crossroads-millhaven':'East Road','millhaven-valdenmoor':'East Road','valdenmoor-port_saltmere':'Coast Road','crossroads-hearthwick':'South Road','hearthwick-whisperwood':'Forest Path','crossroads-aethra_ruins':'Western Track','valdenmoor-bren_monastery':'Monastery Road'};
+              const key=`${r[0]}-${r[1]}`;
+              const name=roadNames[key];
+              if(!name||!aK||!bK) return null;
+              const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+              return <text key={`rn${i}`} x={mx} y={my-6} textAnchor="middle" fontSize="5.5" fill="rgba(140,120,90,0.3)" fontFamily="Georgia, serif" fontStyle="italic">{name}</text>;
+            })}
+
             {/* Roads */}
             {ROADS.map((r, i) => renderRoad(r, i))}
 
             {/* Locations */}
             {visibleLocations.map(loc => renderLocation(loc))}
+
+            {/* Sub-locations (small markers when parent is discovered) */}
+            {SUB_LOCATIONS.filter(sl => knownLocations.has(sl.parent)).map(sl => {
+              const cfg = TYPE_CONFIG[sl.type] || TYPE_CONFIG.landmark;
+              return (
+                <g key={sl.id}>
+                  <circle cx={sl.x} cy={sl.y} r={4} fill={`${cfg.color}44`} stroke={`${cfg.color}66`} strokeWidth="0.7"/>
+                  <text x={sl.x} y={sl.y + 10} textAnchor="middle" fontSize="6" fill={`${cfg.color}88`} fontFamily="Georgia, serif">{sl.name}</text>
+                </g>
+              );
+            })}
 
             {/* Fog vignette */}
             <rect width="800" height="600" fill="url(#fogGrad)" pointerEvents="none"/>

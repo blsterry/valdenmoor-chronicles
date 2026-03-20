@@ -194,10 +194,10 @@ const GameEngine = {
     if (sc.minutesElapsed && sc.minutesElapsed > 0) {
       const mins = sc.minutesElapsed;
       c.gameMinutes = (c.gameMinutes || 0) + mins;
-      // Natural accumulation per hour
-      c.hunger  = Math.min(100, (c.hunger  || 0) + (mins / 60) * 2);
-      c.thirst  = Math.min(100, (c.thirst  || 0) + (mins / 60) * 4);
-      c.fatigue = Math.min(100, (c.fatigue || 0) + (mins / 60) * 2.5);
+      // Natural accumulation per hour (slow — hunger +1/hr, thirst +2/hr, fatigue +1.25/hr)
+      c.hunger  = Math.min(100, (c.hunger  || 0) + (mins / 60) * 1);
+      c.thirst  = Math.min(100, (c.thirst  || 0) + (mins / 60) * 2);
+      c.fatigue = Math.min(100, (c.fatigue || 0) + (mins / 60) * 1.25);
       // Sync dayCount from gameMinutes
       c.dayCount = Math.floor((c.gameMinutes + GAME_START_OFFSET) / 1440) + 1;
     }
@@ -217,7 +217,13 @@ const GameEngine = {
       c.silver = Math.floor((clamped % 100) / 10);
       c.copper = clamped % 10;
     }
-    if (sc.location)     c.location = sc.location;
+    if (sc.location) {
+      c.location = sc.location;
+      // Auto-discover location on arrival (fixes fog of war)
+      if (!c.knownLocations.includes(sc.location)) {
+        c.knownLocations = [...c.knownLocations, sc.location];
+      }
+    }
 
     if (sc.addInventory?.length)    c.inventory = [...c.inventory, ...sc.addInventory];
     if (sc.removeInventory?.length) {
@@ -349,6 +355,20 @@ const GameEngine = {
     }
 
     if (sc.addQuestFlag) c.flags = { ...c.flags, ...sc.addQuestFlag };
+
+    // GM stat modification
+    if (sc.statBoost) {
+      const { stat, amount } = sc.statBoost;
+      if (stat && c.stats[stat] != null) {
+        c.stats = { ...c.stats, [stat]: Math.max(1, Math.min(20, c.stats[stat] + (amount || 0))) };
+        // Recalculate maxHp/maxMp if CON/INT changed
+        if (stat === 'CON' && amount > 0) { c.maxHp += amount; c.hp += amount; }
+        if (stat === 'INT' && amount > 0) { c.maxMp += amount; c.mp += amount; }
+      }
+    }
+    if (sc.statPointsDelta) {
+      c.statPoints = (c.statPoints || 0) + sc.statPointsDelta;
+    }
 
     if (sc.xp) {
       c.xp += sc.xp;
@@ -552,6 +572,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [sceneImages, setSceneImages]   = useState({});   // { sceneKey: base64png }
   const [npcPortraits, setNpcPortraits] = useState({});   // { npcId: base64png }
   const [imgConfirm, setImgConfirm]     = useState(null); // { type: 'all'|'current' } or null
+  const [useGenericImage, setUseGenericImage] = useState(() => localStorage.getItem('vrc-generic-image') === 'true');
   const imageGenerating                 = useRef(new Set());
   const lastSceneByLocation             = useRef({});   // { locationId: entityId } for visual continuity
   const logEndRef = useRef(null);
@@ -1340,6 +1361,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                   <div style={{position:'absolute',right:0,top:'calc(100% + 4px)',background:pal.settingsBg,border:`1px solid ${pal.settingsBorder}`,zIndex:300,minWidth:'175px',fontFamily:'Georgia, serif',boxShadow:'0 4px 16px rgba(0,0,0,0.5)'}}>
                     {[
                       [lightMode ? '☾ Dark Mode' : '☀ Light Mode', toggleLightMode],
+                      [useGenericImage ? '🖼 Scene Images On' : '🏔 Use Title Screen', ()=>{const nv=!useGenericImage;setUseGenericImage(nv);localStorage.setItem('vrc-generic-image',nv?'true':'false');}],
                       ['? How to Play', ()=>{setShowHowToPlay(true);setShowSettings(false);}],
                       ['🔑 Change Password', ()=>{setChangePwForm({old:'',new1:'',new2:''});setChangePwMsg({text:'',ok:false});setShowChangePw(true);setShowSettings(false);}],
                       ['↺ Start Over', ()=>{setShowSettings(false);handleNewGame();}],
@@ -1763,6 +1785,12 @@ export default function Game({ user, onLogout, onAdmin }) {
                 return (
                   <div key={i} style={{marginBottom:'0.5rem'}}>
                     {entry.scenePrompt && (() => {
+                      if (useGenericImage) {
+                        return <div style={{background:'linear-gradient(135deg, #0a0814 0%, #1a1028 40%, #0d0a18 100%)',padding:'2rem 1rem',textAlign:'center',borderBottom:`1px solid ${entryTheme.accent}33`}}>
+                          <div style={{color:'#c9a96e',fontSize:'1.4rem',fontFamily:'Georgia, serif',letterSpacing:'0.2em',textTransform:'uppercase',opacity:0.7}}>Valdenmoor</div>
+                          <div style={{color:'#6a5a4a',fontSize:'0.65rem',fontFamily:'Georgia, serif',letterSpacing:'0.3em',marginTop:'0.25rem',opacity:0.5}}>CHRONICLES</div>
+                        </div>;
+                      }
                       const imgKey = slugifyPrompt(entry.scenePrompt);
                       return sceneImages[imgKey]
                         ? <img src={sceneImages[imgKey]} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'240px',objectFit:'cover',borderBottom:`1px solid ${entryTheme.accent}33`}}/>
