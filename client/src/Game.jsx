@@ -705,7 +705,9 @@ export default function Game({ user, onLogout, onAdmin }) {
         { role: 'assistant', content: JSON.stringify(parsed) },
       ];
 
-      const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(char, parsed.stateChanges);
+      // Inject top-level minutesElapsed into stateChanges so applyStateChanges can use it
+      const sc = { ...parsed.stateChanges, minutesElapsed: parsed.minutesElapsed };
+      const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(char, sc);
 
       // Persist game events (fire-and-forget)
       if (parsed.logEvents?.length > 0) {
@@ -825,7 +827,8 @@ export default function Game({ user, onLogout, onAdmin }) {
 
       if (result.encounter && result.parsed) {
         // Encounter: treat as a full GM response
-        const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(character, result.parsed.stateChanges);
+        const encSc = { ...result.parsed.stateChanges, minutesElapsed: result.parsed.minutesElapsed };
+        const { character: newChar, leveledUp, skillNotices } = GameEngine.applyStateChanges(character, encSc);
 
         const encScene    = result.parsed.scenePrompt || null;
         const encNpcIds   = (result.parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
@@ -1889,6 +1892,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                   style={{flex:1,background:'transparent',border:'none',borderBottom:`1px solid ${cooldown > 0 ? '#c94a4a55' : pal.inputBorder}`,color:pal.textMain,fontFamily:'Georgia, serif',fontSize:'0.88rem',padding:'0.3rem 0.25rem',outline:'none'}}/>
                 <button onClick={()=>handleSend(input)} disabled={loading||!input.trim()||cooldown>0}
                   style={{background:'transparent',border:`1px solid ${input.trim()?'rgba(201,169,110,0.6)':pal.inputBorder}`,color:input.trim()?'#c9a96e':pal.textMuted,padding:'0.3rem 0.9rem',cursor:input.trim()?'pointer':'default',fontFamily:'Georgia, serif',fontSize:'0.85rem',transition:'all 0.15s'}}>→</button>
+                {cooldown > 0 && <span style={{color:'#c94a4a',fontSize:'0.7rem',fontFamily:'Georgia, serif',fontStyle:'italic',whiteSpace:'nowrap',marginLeft:'0.25rem'}}>{cooldown}s</span>}
               </div>
             </div>
           </div>

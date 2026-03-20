@@ -1062,7 +1062,7 @@ TIME & NEEDS RULES — CRITICAL:
 - Every response MUST include minutesElapsed: how many game-minutes this action takes. ALWAYS include this — it drives the day counter and time of day.
   Short actions (look, listen, quick talk): 5-15 min. Conversations: 15-45 min. Meals/rest: 30-90 min. Travel on foot: 30-240 min. Sleep: 360-540 min.
 - Physical needs accumulate automatically from minutesElapsed at SLOW rates (hunger +1/hr, thirst +2/hr, fatigue +1.25/hr). Do NOT add extra hunger/thirst/fatigue via deltas unless the player is exerting themselves unusually (forced march, combat, etc.).
-- Relief deltas: eating hungerDelta -30 to -60, drinking thirstDelta -20 to -50, short rest fatigueDelta -15, sleep fatigueDelta -80 to -100.
+- Relief deltas: A FULL MEAL (large meal, feast, hearty stew) → hungerDelta: -100 (resets to zero). A snack or light bite → hungerDelta: -20 to -40. Drinking heavily (a full waterskin, several mugs) → thirstDelta: -100 (resets to zero). A sip or quick drink → thirstDelta: -15 to -30. Full night's sleep (6+ hours) → fatigueDelta: -100 (resets to zero). Short rest (1-2 hours) → fatigueDelta: -15 to -30. Nap (2-4 hours) → fatigueDelta: -40 to -60. The key rule: if the player explicitly eats a FULL meal, drinks their fill, or sleeps properly, the corresponding need should go to ZERO (use -100).
 - Needs should NOT dominate gameplay. A character can go a full adventuring day (12+ hours) before hunger becomes a real problem. Thirst becomes noticeable after 6-8 hours, fatigue after 10+ hours of activity.
 - When needs hit 75+, it's serious and should affect narration. Below that, it's background flavor at most.
 - Use logEvents to record meaningful events. Each event gets stored and future GMs see it. Be specific.
