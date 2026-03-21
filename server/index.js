@@ -179,16 +179,16 @@ app.get('/api/save', auth, async (req, res) => {
       rows[0].character = c;
     }
   }
-  // Recalculate maxHp/maxMp from derived formula (fixes stale values from old stat boosts)
+  // Recalculate maxHp/maxMp from derived formula
   if (rows[0] && rows[0].character && rows[0].character.stats) {
     const c = rows[0].character;
     const stats = c.stats;
-    const derivedMaxHp = 10 + Math.floor((stats.CON - 10) / 2) * 2 + 10;
-    const derivedMaxMp = 5  + Math.floor((stats.INT - 10) / 2) * 2 + 5;
-    // Add level-based HP bonus: (level-1) * (conMod + 3)
+    const level = c.level || 1;
     const conMod = Math.floor((stats.CON - 10) / 2);
-    const levelHpBonus = ((c.level || 1) - 1) * (conMod + 3);
-    const correctMaxHp = derivedMaxHp + levelHpBonus;
+    const intMod = Math.floor((stats.INT - 10) / 2);
+    const wisMod = Math.floor((stats.WIS - 10) / 2);
+    const correctMaxHp = 20 + conMod * 2 + (level - 1) * (conMod + 3);
+    const correctMaxMp = 8 + intMod + wisMod + Math.floor((level - 1) / 2);
     let dirty = false;
     if (c.maxHp !== correctMaxHp) {
       const diff = correctMaxHp - c.maxHp;
@@ -196,10 +196,10 @@ app.get('/api/save', auth, async (req, res) => {
       c.maxHp = correctMaxHp;
       dirty = true;
     }
-    if (c.maxMp !== derivedMaxMp) {
-      const diff = derivedMaxMp - c.maxMp;
-      c.mp = Math.max(0, Math.min((c.mp || 0) + diff, derivedMaxMp));
-      c.maxMp = derivedMaxMp;
+    if (c.maxMp !== correctMaxMp) {
+      const diff = correctMaxMp - c.maxMp;
+      c.mp = Math.max(0, Math.min((c.mp || 0) + diff, correctMaxMp));
+      c.maxMp = correctMaxMp;
       dirty = true;
     }
     if (dirty) {
@@ -999,7 +999,8 @@ ${mapSection}
 
 CORE RULES:
 
-1. STATS: STR=melee/intimidate, DEX=stealth/ranged, INT=magic/lore, WIS=perception/survival, CON=hp/endurance, CHA=persuasion/trade
+1. STATS: STR=melee/intimidate, DEX=stealth/ranged, INT=magic/lore, WIS=perception/survival/mp, CON=hp/endurance, CHA=persuasion/trade
+   HP FORMULA: maxHp = 20 + CON_mod*2 + (level-1)*(CON_mod+3). MP FORMULA: maxMp = 8 + INT_mod + WIS_mod + floor((level-1)/2). Modifier = floor((stat-10)/2). These are calculated automatically — do NOT try to set maxHp/maxMp directly. Use statBoost to change stats, and the system recalculates.
 2. MYSTERY: Reward investigation. Information has cost. Not all is freely given.
 3. CURRENCY: Use goldDelta/silverDelta/copperDelta for all money changes (not "gold"). Denominations: 1gp=10sp=100cp. Common prices: meal 2-4cp, bed 3-6cp, cheap inn room+meal together 5-8cp, dagger 15cp, sword 1-2sp. ALWAYS use the correct denomination. Never deduct gold for copper-priced items unless the player explicitly has no smaller coin.
    CURRENCY MATH — CRITICAL: The system normalizes all currency via total copper. When deducting, use NEGATIVE deltas in the correct denomination. Examples:
