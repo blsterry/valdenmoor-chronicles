@@ -284,8 +284,14 @@ const GameEngine = {
       c.inventory = [...c.inventory, ...normalized];
     }
 
-    // Full spell added (learning complete or single-stage)
+    // Remove spell by id or name
+    if (sc.removeSpell) {
+      const rid = sc.removeSpell.id || sc.removeSpell;
+      c.spells = c.spells.filter(sp => sp.id !== rid && sp.name !== rid);
+    }
+    // Full spell added (learning complete or single-stage) — replaces existing with same id/name
     if (sc.addSpell) {
+      c.spells = c.spells.filter(sp => sp.id !== sc.addSpell.id && sp.name !== sc.addSpell.name);
       c.spells = [...c.spells, sc.addSpell];
       // Remove from spellLearning if it was there
       c.spellLearning = (c.spellLearning || []).filter(sl => sl.spellId !== sc.addSpell.id);
@@ -643,6 +649,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [showChangePw, setShowChangePw]   = useState(false);
   const [sidebarSkills, setSidebarSkills] = useState(false);
   const [sidebarSpells, setSidebarSpells] = useState(false);
+  const [expandedSpells, setExpandedSpells] = useState({});  // { spellIndex: true/false }
   const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
   const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
   const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
@@ -730,6 +737,24 @@ export default function Game({ user, onLogout, onAdmin }) {
             description: sp.description || null,
             taughtBy: sp.taughtBy || null,
           }));
+        }
+        // Recover gameMinutes from message history if stuck at 0
+        if ((ch.gameMinutes || 0) === 0 && saved.messages && saved.messages.length > 2) {
+          let recovered = 0;
+          for (const msg of saved.messages) {
+            if (msg.role === 'assistant' && msg.content) {
+              try {
+                const parsed = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
+                if (parsed.minutesElapsed && parsed.minutesElapsed > 0) {
+                  recovered += parsed.minutesElapsed;
+                }
+              } catch(e) { /* skip unparseable */ }
+            }
+          }
+          if (recovered > 0) {
+            ch.gameMinutes = recovered;
+            ch.dayCount = Math.floor((recovered + 1080) / 1440) + 1;
+          }
         }
         // Recalculate maxHp/maxMp from derived formula
         if (ch.stats) {
@@ -1694,13 +1719,22 @@ export default function Game({ user, onLogout, onAdmin }) {
                 <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>KNOWN SPELLS</div>
                 {character.spells.length===0 && (character.spellLearning?.length === 0 || !character.spellLearning)
                   ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach. Magic is not given — it is earned through trust and time.</div>
-                  : character.spells.map((sp,i)=>(
+                  : character.spells.map((sp,i)=>{
+                    const isOpen = expandedSpells[i];
+                    return (
                     <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
-                      <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></div>
-                      <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description || 'No description available.'}</div>
-                      <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
+                      <div onClick={()=>setExpandedSpells(prev=>({...prev,[i]:!prev[i]}))}
+                        style={{color:'#b08fd4',fontSize:'0.88rem',cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem'}}>
+                        <span style={{color:'#5a4a7a',fontSize:'0.6rem',width:'0.8rem',display:'inline-block',transition:'transform 0.15s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>▶</span>
+                        ✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span>
+                      </div>
+                      {isOpen && (<>
+                        <div style={{color:'#6a5a7a',fontSize:'0.75rem',marginTop:'0.25rem',paddingLeft:'1.1rem'}}>{sp.description || 'No description available.'}</div>
+                        <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic',paddingLeft:'1.1rem'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
+                      </>)}
                     </div>
-                  ))
+                    );
+                  })
                 }
                 {(character.spellLearning?.length > 0) && (<>
                   <div style={{color:'#5a4a6a',fontSize:'0.65rem',letterSpacing:'0.1em',margin:'0.5rem 0 0.4rem',borderTop:'1px solid rgba(201,169,110,0.08)',paddingTop:'0.5rem'}}>LEARNING</div>
