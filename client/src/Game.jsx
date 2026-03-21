@@ -711,7 +711,37 @@ export default function Game({ user, onLogout, onAdmin }) {
     Promise.all([loadSave(), loadNpcStates()]).then(([saved, npcData]) => {
       setNpcStates(npcData || {});
       if (saved) {
-        setCharacter(saved.character);
+        // Normalize character on load
+        const ch = saved.character;
+        if (ch.inventory) ch.inventory = normalizeInventoryItems(ch.inventory);
+        if (!ch.locationInventory) ch.locationInventory = {};
+        // Ensure spells have all required display fields
+        if (ch.spells) {
+          ch.spells = ch.spells.map(sp => ({
+            ...sp,
+            mpCost: sp.mpCost ?? null,
+            description: sp.description || null,
+            taughtBy: sp.taughtBy || null,
+          }));
+        }
+        // Recalculate maxHp/maxMp from derived formula
+        if (ch.stats) {
+          const derived = GameEngine.computeDerivedStats(ch.stats);
+          const conMod = Math.floor((ch.stats.CON - 10) / 2);
+          const levelHpBonus = ((ch.level || 1) - 1) * (conMod + 3);
+          const correctMaxHp = derived.maxHp + levelHpBonus;
+          if (ch.maxHp !== correctMaxHp) {
+            const diff = correctMaxHp - ch.maxHp;
+            ch.hp = Math.max(1, Math.min((ch.hp || 1) + diff, correctMaxHp));
+            ch.maxHp = correctMaxHp;
+          }
+          if (ch.maxMp !== derived.maxMp) {
+            const diff = derived.maxMp - ch.maxMp;
+            ch.mp = Math.max(0, Math.min((ch.mp || 0) + diff, derived.maxMp));
+            ch.maxMp = derived.maxMp;
+          }
+        }
+        setCharacter(ch);
         setMessages(saved.messages || []);
         setDisplayLog(saved.display_log || []);
         setMood(saved.mood || 'mysterious');

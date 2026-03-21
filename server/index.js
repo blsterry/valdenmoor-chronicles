@@ -179,6 +179,34 @@ app.get('/api/save', auth, async (req, res) => {
       rows[0].character = c;
     }
   }
+  // Recalculate maxHp/maxMp from derived formula (fixes stale values from old stat boosts)
+  if (rows[0] && rows[0].character && rows[0].character.stats) {
+    const c = rows[0].character;
+    const stats = c.stats;
+    const derivedMaxHp = 10 + Math.floor((stats.CON - 10) / 2) * 2 + 10;
+    const derivedMaxMp = 5  + Math.floor((stats.INT - 10) / 2) * 2 + 5;
+    // Add level-based HP bonus: (level-1) * (conMod + 3)
+    const conMod = Math.floor((stats.CON - 10) / 2);
+    const levelHpBonus = ((c.level || 1) - 1) * (conMod + 3);
+    const correctMaxHp = derivedMaxHp + levelHpBonus;
+    let dirty = false;
+    if (c.maxHp !== correctMaxHp) {
+      const diff = correctMaxHp - c.maxHp;
+      c.hp = Math.max(1, Math.min((c.hp || 1) + diff, correctMaxHp));
+      c.maxHp = correctMaxHp;
+      dirty = true;
+    }
+    if (c.maxMp !== derivedMaxMp) {
+      const diff = derivedMaxMp - c.maxMp;
+      c.mp = Math.max(0, Math.min((c.mp || 0) + diff, derivedMaxMp));
+      c.maxMp = derivedMaxMp;
+      dirty = true;
+    }
+    if (dirty) {
+      rows[0].character = c;
+      await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
+    }
+  }
   res.json(rows[0] || null);
 });
 
