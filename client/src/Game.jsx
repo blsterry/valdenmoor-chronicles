@@ -427,7 +427,7 @@ const GameEngine = {
       if (stat && c.stats[stat] != null) {
         c.stats = { ...c.stats, [stat]: Math.max(1, Math.min(20, c.stats[stat] + (amount || 0))) };
         // Recalculate maxHp/maxMp from derived formula
-        const derived = GameEngine.computeDerivedStats(c.stats);
+        const derived = GameEngine.computeDerivedStats(c.stats, c.level || 1);
         if (derived.maxHp !== c.maxHp) {
           const diff = derived.maxHp - c.maxHp;
           c.maxHp = derived.maxHp;
@@ -451,9 +451,13 @@ const GameEngine = {
         c.xp = Math.max(0, c.xp - c.xpToNext);
         c.xpToNext = Math.floor(c.xpToNext * 1.5);
         c.statPoints = (c.statPoints || 0) + 2;
-        const conMod = Math.floor((c.stats.CON - 10) / 2);
-        c.maxHp += conMod + 3;
-        c.hp = Math.min(c.hp + conMod + 3, c.maxHp);
+        const derived = GameEngine.computeDerivedStats(c.stats, c.level);
+        const hpDiff = derived.maxHp - c.maxHp;
+        const mpDiff = derived.maxMp - c.maxMp;
+        c.maxHp = derived.maxHp;
+        c.hp = Math.min(c.hp + Math.max(0, hpDiff), c.maxHp);
+        c.maxMp = derived.maxMp;
+        c.mp = Math.min(c.mp + Math.max(0, mpDiff), c.maxMp);
         return { character: c, leveledUp: true, skillNotices };
       }
     }
@@ -461,10 +465,13 @@ const GameEngine = {
     return { character: c, leveledUp: false, skillNotices };
   },
 
-  computeDerivedStats(stats) {
+  computeDerivedStats(stats, level = 1) {
+    const conMod = Math.floor((stats.CON - 10) / 2);
+    const intMod = Math.floor((stats.INT - 10) / 2);
+    const wisMod = Math.floor((stats.WIS - 10) / 2);
     return {
-      maxHp: 10 + Math.floor((stats.CON - 10) / 2) * 2 + 10,
-      maxMp: 5  + Math.floor((stats.INT - 10) / 2) * 2 + 5,
+      maxHp: 20 + conMod * 2 + (level - 1) * (conMod + 3),
+      maxMp: 8 + intMod + wisMod + Math.floor((level - 1) / 2),
     };
   },
 };
@@ -726,14 +733,11 @@ export default function Game({ user, onLogout, onAdmin }) {
         }
         // Recalculate maxHp/maxMp from derived formula
         if (ch.stats) {
-          const derived = GameEngine.computeDerivedStats(ch.stats);
-          const conMod = Math.floor((ch.stats.CON - 10) / 2);
-          const levelHpBonus = ((ch.level || 1) - 1) * (conMod + 3);
-          const correctMaxHp = derived.maxHp + levelHpBonus;
-          if (ch.maxHp !== correctMaxHp) {
-            const diff = correctMaxHp - ch.maxHp;
-            ch.hp = Math.max(1, Math.min((ch.hp || 1) + diff, correctMaxHp));
-            ch.maxHp = correctMaxHp;
+          const derived = GameEngine.computeDerivedStats(ch.stats, ch.level || 1);
+          if (ch.maxHp !== derived.maxHp) {
+            const diff = derived.maxHp - ch.maxHp;
+            ch.hp = Math.max(1, Math.min((ch.hp || 1) + diff, derived.maxHp));
+            ch.maxHp = derived.maxHp;
           }
           if (ch.maxMp !== derived.maxMp) {
             const diff = derived.maxMp - ch.maxMp;
@@ -1074,13 +1078,17 @@ export default function Game({ user, onLogout, onAdmin }) {
       if (!prev || prev.statPoints <= 0 || prev.stats[stat] >= 20) return prev;
       const oldMod = Math.floor((prev.stats[stat] - 10) / 2);
       const newMod = Math.floor((prev.stats[stat] + 1 - 10) / 2);
+      const newStats = { ...prev.stats, [stat]: prev.stats[stat] + 1 };
+      const derived = GameEngine.computeDerivedStats(newStats, prev.level || 1);
       const updated = {
         ...prev,
-        stats: { ...prev.stats, [stat]: prev.stats[stat] + 1 },
+        stats: newStats,
         statPoints: prev.statPoints - 1,
+        maxHp: derived.maxHp,
+        hp: prev.hp + Math.max(0, derived.maxHp - prev.maxHp),
+        maxMp: derived.maxMp,
+        mp: prev.mp + Math.max(0, derived.maxMp - prev.maxMp),
       };
-      if (stat === 'CON' && newMod > oldMod) { updated.maxHp = prev.maxHp + 1; updated.hp = prev.hp + 1; }
-      if (stat === 'INT' && newMod > oldMod) { updated.maxMp = prev.maxMp + 1; updated.mp = prev.mp + 1; }
       persistSave(updated, messages, displayLog, mood, options, currentScene);
       return updated;
     });
