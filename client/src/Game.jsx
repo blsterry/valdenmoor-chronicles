@@ -104,7 +104,8 @@ const INITIAL_CHARACTER = {
   name: '', gender: 'they', backstory: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
   stats: { STR: 8, DEX: 8, INT: 8, WIS: 8, CON: 8, CHA: 8 },
   hp: 20, maxHp: 20, mp: 10, maxMp: 10, gold: 15, silver: 0, copper: 0,
-  inventory: ["Worn Traveler's Cloak", 'Flint & Steel', 'Waterskin', '3x Hardtack'],
+  inventory: ["Worn Traveler's Cloak", 'Flint & Steel', 'Waterskin', 'Hardtack', 'Hardtack', 'Hardtack'],
+  locationInventory: {},  // { "seras_cabin": ["Herb Bundle", "Old Map"], ... }
   spells: [],
   spellLearning: [],   // [{ spellId, spellName, stage, totalStages, teacherNpcId, partialNote }]
   skills: [],          // [{ id, name, tier, tierName, xp, xpToNext, description, taughtBy }]
@@ -183,6 +184,24 @@ const INPUT_PLACEHOLDERS = [
   'I sit at the bar and listen to the conversations around me',
 ];
 
+// ─── Inventory Helpers ──────────────────────────────────────────────────────
+
+// Expand "3x Hardtack" → ["Hardtack", "Hardtack", "Hardtack"]
+function normalizeInventoryItems(items) {
+  const result = [];
+  for (const item of items) {
+    const match = item.match(/^(\d+)x\s+(.+)$/);
+    if (match) {
+      const count = parseInt(match[1], 10);
+      const name = match[2];
+      for (let i = 0; i < count; i++) result.push(name);
+    } else {
+      result.push(item);
+    }
+  }
+  return result;
+}
+
 // ─── Game Engine ─────────────────────────────────────────────────────────────
 
 const GameEngine = {
@@ -226,14 +245,43 @@ const GameEngine = {
       }
     }
 
-    if (sc.addInventory?.length)    c.inventory = [...c.inventory, ...sc.addInventory];
+    if (sc.addInventory?.length)    c.inventory = [...c.inventory, ...normalizeInventoryItems(sc.addInventory)];
     if (sc.removeInventory?.length) {
       let inv = [...c.inventory];
-      sc.removeInventory.forEach(item => {
+      normalizeInventoryItems(sc.removeInventory).forEach(item => {
         const idx = inv.indexOf(item);
         if (idx !== -1) inv.splice(idx, 1);
       });
       c.inventory = inv;
+    }
+
+    // Location stash: move items from inventory to location storage
+    if (sc.stashItem) {
+      const { items, location } = sc.stashItem;
+      const normalized = normalizeInventoryItems(items);
+      let inv = [...c.inventory];
+      normalized.forEach(item => {
+        const idx = inv.indexOf(item);
+        if (idx !== -1) inv.splice(idx, 1);
+      });
+      c.inventory = inv;
+      const locInv = { ...(c.locationInventory || {}) };
+      locInv[location] = [...(locInv[location] || []), ...normalized];
+      c.locationInventory = locInv;
+    }
+    // Location unstash: retrieve items from location storage
+    if (sc.unstashItem) {
+      const { items, location } = sc.unstashItem;
+      const normalized = normalizeInventoryItems(items);
+      const locInv = { ...(c.locationInventory || {}) };
+      let locItems = [...(locInv[location] || [])];
+      normalized.forEach(item => {
+        const idx = locItems.indexOf(item);
+        if (idx !== -1) locItems.splice(idx, 1);
+      });
+      locInv[location] = locItems;
+      c.locationInventory = locInv;
+      c.inventory = [...c.inventory, ...normalized];
     }
 
     // Full spell added (learning complete or single-stage)
@@ -378,9 +426,18 @@ const GameEngine = {
       const { stat, amount } = sc.statBoost;
       if (stat && c.stats[stat] != null) {
         c.stats = { ...c.stats, [stat]: Math.max(1, Math.min(20, c.stats[stat] + (amount || 0))) };
-        // Recalculate maxHp/maxMp if CON/INT changed
-        if (stat === 'CON' && amount > 0) { c.maxHp += amount; c.hp += amount; }
-        if (stat === 'INT' && amount > 0) { c.maxMp += amount; c.mp += amount; }
+        // Recalculate maxHp/maxMp from derived formula
+        const derived = GameEngine.computeDerivedStats(c.stats);
+        if (derived.maxHp !== c.maxHp) {
+          const diff = derived.maxHp - c.maxHp;
+          c.maxHp = derived.maxHp;
+          c.hp = Math.max(1, Math.min(c.hp + diff, c.maxHp));
+        }
+        if (derived.maxMp !== c.maxMp) {
+          const diff = derived.maxMp - c.maxMp;
+          c.maxMp = derived.maxMp;
+          c.mp = Math.max(0, Math.min(c.mp + diff, c.maxMp));
+        }
       }
     }
     if (sc.statPointsDelta) {
@@ -751,6 +808,10 @@ export default function Game({ user, onLogout, onAdmin }) {
         showNotif(`⚔ ${parsed.stateChanges.updateSkill.name} advanced to ${parsed.stateChanges.updateSkill.tierName}!`, 'skill');
       if (parsed.stateChanges?.addWaypoint)
         showNotif(`⬡ Waypoint set: ${parsed.stateChanges.addWaypoint.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}`, 'waypoint');
+      if (parsed.stateChanges?.stashItem)
+        showNotif(`📦 Stored ${parsed.stateChanges.stashItem.items.length} item(s)`, 'inventory');
+      if (parsed.stateChanges?.unstashItem)
+        showNotif(`📦 Retrieved ${parsed.stateChanges.unstashItem.items.length} item(s)`, 'inventory');
       if (leveledUp)
         showNotif(`⬆️ Level Up! You are now Level ${newChar.level}!`, 'levelup', 5000);
       for (const notice of skillNotices)
@@ -1552,6 +1613,26 @@ export default function Game({ user, onLogout, onAdmin }) {
                       });
                     })()
                 }
+                {/* Location stash */}
+                {(character.locationInventory?.[character.location]?.length > 0) && (
+                  <div style={{marginTop:'0.6rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+                    <div style={{color:'#8a9a6e',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>
+                      STASHED HERE ({character.locationInventory[character.location].length} items)
+                    </div>
+                    {(() => {
+                      const counts = {};
+                      character.locationInventory[character.location].forEach(item => { counts[item] = (counts[item]||0)+1; });
+                      return Object.entries(counts).map(([item, count]) => (
+                        <div key={item} style={{color:'#8a9a6e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
+                          · {item} {count > 1 && <span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
+                        </div>
+                      ));
+                    })()}
+                    <div style={{color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',marginTop:'0.3rem'}}>
+                      Tell the GM to store or retrieve items.
+                    </div>
+                  </div>
+                )}
                 <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
                   Use any item by describing it in the input below. Equippable items show an Equip button.
                 </div>
@@ -1577,9 +1658,9 @@ export default function Game({ user, onLogout, onAdmin }) {
                   ? <div style={{color:'#4a3a2a',fontSize:'0.8rem',fontStyle:'italic'}}>Seek those willing to teach. Magic is not given — it is earned through trust and time.</div>
                   : character.spells.map((sp,i)=>(
                     <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
-                      <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost} MP)</span></div>
-                      <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description}</div>
-                      <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic'}}>Taught by {sp.taughtBy}</div>
+                      <div style={{color:'#b08fd4',fontSize:'0.88rem'}}>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></div>
+                      <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description || 'No description available.'}</div>
+                      <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
                     </div>
                   ))
                 }

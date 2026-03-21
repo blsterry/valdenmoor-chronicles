@@ -153,6 +153,32 @@ app.get('/api/save', auth, async (req, res) => {
     rows[0].character = c;
     await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
   }
+  // Inventory normalization migration: expand "3x Hardtack" → 3× "Hardtack"
+  if (rows[0] && rows[0].character && rows[0].character.inventory) {
+    const c = rows[0].character;
+    let changed = false;
+    const normalized = [];
+    for (const item of c.inventory) {
+      const match = item.match(/^(\d+)x\s+(.+)$/);
+      if (match) {
+        changed = true;
+        const count = parseInt(match[1], 10);
+        for (let i = 0; i < count; i++) normalized.push(match[2]);
+      } else {
+        normalized.push(item);
+      }
+    }
+    if (changed) {
+      c.inventory = normalized;
+      rows[0].character = c;
+      await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
+    }
+    // Ensure locationInventory exists
+    if (!c.locationInventory) {
+      c.locationInventory = {};
+      rows[0].character = c;
+    }
+  }
   res.json(rows[0] || null);
 });
 
@@ -1026,6 +1052,7 @@ Players may type ANYTHING. Honor all reasonable player actions:
 INVENTORY NAMING RULES:
 - Exact, consistent item names. Specific: "Smooth River Stone" not "stone".
 - When removing, the string must exactly match the inventory entry.
+- NEVER use quantity prefixes like "3x Hardtack". Always send individual items: addInventory: ["Hardtack", "Hardtack", "Hardtack"]. The client handles counting and display automatically.
 
 EQUIPMENT & MAGIC ITEMS:
 - The player has equipment slots: head, armor, weapon, offhand, ring1, ring2, cloak, boots. The client handles equipping from inventory.
@@ -1089,6 +1116,14 @@ If the player requests to advance time by days or a week with planned activities
 8. Use multiple skillXP awards by setting skillXP to an array: [{ skillId, amount }, ...] — or make multiple calls if needed
 9. The world should feel like it moved forward — not frozen in time waiting for the player
 
+LOCATION STASH SYSTEM:
+- Players can store items at locations they control or have shelter in (cabins, camps, inns with a rented room, their own base).
+- To stash items: use stashItem in stateChanges: { "items": ["Herb Bundle", "Old Map"], "location": "seras_cabin" }
+- To retrieve items: use unstashItem in stateChanges: { "items": ["Herb Bundle"], "location": "seras_cabin" }
+- The location MUST match the player's current location. Items move between carried inventory and location stash — they are NOT duplicated.
+- Use stashItem/unstashItem when the player explicitly stores or retrieves items (e.g. "I leave my supplies at the cottage", "I grab the rope from my stash").
+- The player's locationInventory in their state shows what is stored where. Reference this when the player asks what they have stored.
+
 WAYPOINT RULES:
 - Use addWaypoint when player explicitly establishes a camp, sets up a base, or declares intent to return.
 - Not every visit earns a waypoint — only deliberate establishment.
@@ -1096,7 +1131,9 @@ WAYPOINT RULES:
 SPELL LEARNING RULES:
 - Never grant a full spell in a single session unless it is explicitly a one-stage teaching.
 - Use addSpellStage for multi-stage spells: { spellId, spellName, stage, totalStages, teacherNpcId, partialNote }
-- Use addSpell only when ALL stages are complete.
+- Use addSpell only when ALL stages are complete. addSpell format — ALL FIELDS REQUIRED:
+  { "id": "flame_ward", "name": "Flame Ward", "mpCost": 3, "description": "A protective barrier of flame that absorbs incoming damage.", "taughtBy": "Sera" }
+  mpCost MUST be a number. description MUST be 1-2 sentences explaining what the spell does. taughtBy MUST be the NPC name.
 - partialNote should describe what the player can do with their partial knowledge (usually very limited).
 
 CRITICAL: Respond ONLY with valid JSON. No markdown. No prose outside JSON. No backticks.
@@ -1130,6 +1167,8 @@ RESPONSE SCHEMA:
     "hungerDelta": null,
     "thirstDelta": null,
     "fatigueDelta": null,
+    "stashItem": null,
+    "unstashItem": null,
     "statBoost": { "stat": "CON", "amount": 2 },
     "statPointsDelta": null,
     "loreEntry": null
