@@ -1725,7 +1725,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                     <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
                       <div onClick={()=>setExpandedSpells(prev=>({...prev,[i]:!prev[i]}))}
                         style={{color:'#b08fd4',fontSize:'0.88rem',cursor:'pointer',display:'flex',alignItems:'center',gap:'0.4rem',userSelect:'none'}}>
-                        <span style={{color:'#b08fd4',fontSize:'0.55rem',flexShrink:0,transition:'transform 0.15s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>{isOpen?'▼':'▶'}</span>
+                        <span style={{color:'#b08fd4',fontSize:'0.65rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
                         <span>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
                       </div>
                       {isOpen && (<>
@@ -1931,7 +1931,7 @@ export default function Game({ user, onLogout, onAdmin }) {
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                 <button onClick={()=>setSidebarSkills(p=>!p)}
                   style={{background:sidebarSkills?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSkills?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSkills?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
-                  ⚔ Skills ({character.skills?.length||0}) <span style={{float:'right',fontSize:'0.6rem'}}>{sidebarSkills?'▾':'▸'}</span>
+                  ⚔ Skills ({character.skills?.length||0}) <span style={{float:'right',fontSize:'0.75rem'}}>{sidebarSkills?'▾':'▸'}</span>
                 </button>
                 {sidebarSkills && (
                   <div style={{padding:'0.4rem 0.2rem 0'}}>
@@ -1952,19 +1952,32 @@ export default function Game({ user, onLogout, onAdmin }) {
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                 <button onClick={()=>setSidebarSpells(p=>!p)}
                   style={{background:sidebarSpells?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSpells?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSpells?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
-                  ✨ Spells ({character.spells?.length||0}) <span style={{float:'right',fontSize:'0.6rem'}}>{sidebarSpells?'▾':'▸'}</span>
+                  ✨ Spells ({character.spells?.length||0}) <span style={{float:'right',fontSize:'0.75rem'}}>{sidebarSpells?'▾':'▸'}</span>
                 </button>
                 {sidebarSpells && (
                   <div style={{padding:'0.4rem 0.2rem 0'}}>
                     {character.spells?.length===0 && (!character.spellLearning?.length)
                       ? <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>No spells yet.</div>
                       : <>
-                        {character.spells.map((sp,i)=>(
+                        {character.spells.map((sp,i)=>{
+                          const isOpen = expandedSpells[`sb${i}`];
+                          return (
                           <div key={i} style={{padding:'0.15rem 0',fontSize:'0.72rem'}}>
-                            <span style={{color:'#b08fd4'}}>✦ {sp.name}</span>
-                            <span style={{color:'#5a4a7a',fontSize:'0.6rem',marginLeft:'0.3rem'}}>({sp.mpCost} MP)</span>
+                            <div onClick={()=>setExpandedSpells(prev=>({...prev,[`sb${i}`]:!prev[`sb${i}`]}))}
+                              style={{cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem',userSelect:'none'}}>
+                              <span style={{color:'#b08fd4',fontSize:'0.6rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
+                              <span><span style={{color:'#b08fd4'}}>✦ {sp.name}</span>
+                              <span style={{color:'#5a4a7a',fontSize:'0.6rem',marginLeft:'0.3rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
+                            </div>
+                            {isOpen && (
+                              <div style={{paddingLeft:'1.1rem',marginTop:'0.15rem'}}>
+                                <div style={{color:'#6a5a7a',fontSize:'0.68rem'}}>{sp.description || 'No description available.'}</div>
+                                <div style={{color:'#4a3a5a',fontSize:'0.6rem',fontStyle:'italic'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
+                              </div>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                         {character.spellLearning?.map((sl,i)=>(
                           <div key={`l${i}`} style={{padding:'0.15rem 0',fontSize:'0.68rem'}}>
                             <span style={{color:'#8060a8'}}>◌ {sl.spellName}</span>
