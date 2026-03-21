@@ -1160,9 +1160,10 @@ WAYPOINT RULES:
 SPELL LEARNING RULES:
 - Never grant a full spell in a single session unless it is explicitly a one-stage teaching.
 - Use addSpellStage for multi-stage spells: { spellId, spellName, stage, totalStages, teacherNpcId, partialNote }
-- Use addSpell only when ALL stages are complete. addSpell format — ALL FIELDS REQUIRED:
+- Use addSpell only when ALL stages are complete. addSpell REPLACES any existing spell with the same id or name (no duplicates). addSpell format — ALL FIELDS REQUIRED:
   { "id": "flame_ward", "name": "Flame Ward", "mpCost": 3, "description": "A protective barrier of flame that absorbs incoming damage.", "taughtBy": "Sera" }
   mpCost MUST be a number. description MUST be 1-2 sentences explaining what the spell does. taughtBy MUST be the NPC name.
+- To remove a spell: use removeSpell with the spell id or name string, e.g. "removeSpell": "flame_ward" or "removeSpell": "Flame Ward"
 - partialNote should describe what the player can do with their partial knowledge (usually very limited).
 
 CRITICAL: Respond ONLY with valid JSON. No markdown. No prose outside JSON. No backticks.
@@ -1183,6 +1184,7 @@ RESPONSE SCHEMA:
     "addInventory": [],
     "removeInventory": [],
     "addSpell": null,
+    "removeSpell": null,
     "addSpellStage": null,
     "addSkill": null,
     "emergentSkill": null,
