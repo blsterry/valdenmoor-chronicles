@@ -1724,9 +1724,9 @@ export default function Game({ user, onLogout, onAdmin }) {
                     return (
                     <div key={i} style={{marginBottom:'0.6rem',borderBottom:'1px solid rgba(201,169,110,0.08)',paddingBottom:'0.5rem'}}>
                       <div onClick={()=>setExpandedSpells(prev=>({...prev,[i]:!prev[i]}))}
-                        style={{color:'#b08fd4',fontSize:'0.88rem',cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem'}}>
-                        <span style={{color:'#5a4a7a',fontSize:'0.6rem',width:'0.8rem',display:'inline-block',transition:'transform 0.15s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>▶</span>
-                        ✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span>
+                        style={{color:'#b08fd4',fontSize:'0.88rem',cursor:'pointer',display:'flex',alignItems:'center',gap:'0.4rem',userSelect:'none'}}>
+                        <span style={{color:'#b08fd4',fontSize:'0.55rem',flexShrink:0,transition:'transform 0.15s',transform:isOpen?'rotate(90deg)':'rotate(0deg)'}}>{isOpen?'▼':'▶'}</span>
+                        <span>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
                       </div>
                       {isOpen && (<>
                         <div style={{color:'#6a5a7a',fontSize:'0.75rem',marginTop:'0.25rem',paddingLeft:'1.1rem'}}>{sp.description || 'No description available.'}</div>
