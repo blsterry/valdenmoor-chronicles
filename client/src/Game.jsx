@@ -2120,13 +2120,37 @@ export default function Game({ user, onLogout, onAdmin }) {
                 const visibleEntries = filtered.filter(e => !e.hidden);
                 if (visibleEntries.length === 0) {
                   const gt = formatGameTime(character?.gameMinutes || 0);
-                  const locName = (character?.location || 'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+                  const locId = character?.location || 'unknown';
+                  const locName = locId.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
                   const isCurrentDay = viewDay === currentDay;
+                  // Generate a location image for empty current day
+                  if (isCurrentDay && locId !== 'unknown') {
+                    const daySceneKey = `daystart-${locId}-day${gt.dayNum}`;
+                    if (!sceneImages[daySceneKey]) {
+                      const dayPrompt = `${locName}, ${gt.label}, medieval fantasy landscape, no people, no figures, atmospheric, empty scene, quiet ${gt.label} light`;
+                      fetchSceneImage(dayPrompt, daySceneKey, { mood: 'calm', location: locId });
+                    }
+                    const img = sceneImages[`daystart-${locId}-day${gt.dayNum}`];
+                    return <div key="empty-day">
+                      {img
+                        ? <img src={img} alt="" style={{width:'100%',display:'block',opacity:0.92,maxHeight:'280px',objectFit:'cover',borderBottom:`1px solid rgba(201,169,110,0.15)`}}/>
+                        : useGenericImage
+                          ? <div style={{background:'linear-gradient(135deg, #0a0814 0%, #1a1028 40%, #0d0a18 100%)',padding:'2rem 1rem',textAlign:'center',borderBottom:'1px solid rgba(201,169,110,0.15)'}}>
+                              <div style={{color:'#c9a96e',fontSize:'1.4rem',fontFamily:'Georgia, serif',letterSpacing:'0.2em',textTransform:'uppercase',opacity:0.7}}>Valdenmoor</div>
+                              <div style={{color:'#6a5a4a',fontSize:'0.65rem',fontFamily:'Georgia, serif',letterSpacing:'0.3em',marginTop:'0.25rem',opacity:0.5}}>CHRONICLES</div>
+                            </div>
+                          : null
+                      }
+                      <div style={{padding:'1.5rem 1.5rem',textAlign:'center'}}>
+                        <div style={{color:pal.textMuted,fontSize:'0.95rem',fontStyle:'italic',lineHeight:'1.8'}}>
+                          Day {gt.dayNum} begins in {locName}. The {gt.label} awaits.
+                        </div>
+                      </div>
+                    </div>;
+                  }
                   return <div key="empty-day" style={{padding:'2rem 1.5rem',textAlign:'center'}}>
                     <div style={{color:pal.textMuted,fontSize:'0.95rem',fontStyle:'italic',lineHeight:'1.8'}}>
-                      {isCurrentDay
-                        ? `Day ${gt.dayNum} begins in ${locName}. The ${gt.label} awaits.`
-                        : `No entries for Day ${viewDay}.`}
+                      No entries for Day {viewDay}.
                     </div>
                   </div>;
                 }
