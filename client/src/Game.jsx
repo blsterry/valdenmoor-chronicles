@@ -229,9 +229,12 @@ const GameEngine = {
       c.hunger  = Math.min(100, (c.hunger  || 0) + (mins / 60) * 1);
       c.thirst  = Math.min(100, (c.thirst  || 0) + (mins / 60) * 2);
       c.fatigue = Math.min(100, (c.fatigue || 0) + (mins / 60) * 1.25);
-      // MP regeneration: +1 MP per hour passively, sleeping recovers faster (handled via fatigueDelta)
+      // MP regeneration: +1 MP per hour passively
       const mpRegen = Math.floor((mins / 60) * 1);
       if (mpRegen > 0) c.mp = Math.min(c.maxMp, (c.mp || 0) + mpRegen);
+      // HP natural recovery: +1 HP per 6 hours
+      const hpRegen = Math.floor(mins / 360);
+      if (hpRegen > 0) c.hp = Math.min(c.maxHp, (c.hp || 0) + hpRegen);
       // Sync dayCount from gameMinutes
       c.dayCount = Math.floor((c.gameMinutes + GAME_START_OFFSET) / 1440) + 1;
     }
@@ -240,8 +243,8 @@ const GameEngine = {
     if (sc.thirstDelta  != null) c.thirst  = Math.max(0, Math.min(100, (c.thirst  || 0) + sc.thirstDelta));
     if (sc.fatigueDelta != null) {
       c.fatigue = Math.max(0, Math.min(100, (c.fatigue || 0) + sc.fatigueDelta));
-      // Sleep bonus: large fatigue relief (sleep) also restores MP to full
-      if (sc.fatigueDelta <= -60) c.mp = c.maxMp;
+      // Sleep bonus: large fatigue relief (sleep) restores MP and HP to full
+      if (sc.fatigueDelta <= -60) { c.mp = c.maxMp; c.hp = c.maxHp; }
     }
 
     if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
