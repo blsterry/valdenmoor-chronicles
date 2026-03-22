@@ -661,6 +661,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [sidebarSkills, setSidebarSkills] = useState(false);
   const [sidebarSpells, setSidebarSpells] = useState(false);
   const [sidebarStash, setSidebarStash]   = useState(false);
+  const [showLocInv, setShowLocInv]       = useState(false);  // location inventory dropdown
   const [expandedSpells, setExpandedSpells] = useState({});  // { spellIndex: true/false }
   const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
   const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
@@ -1526,14 +1527,76 @@ export default function Game({ user, onLogout, onAdmin }) {
               <span style={{color:pal.textMuted,fontSize:'0.88rem',margin:'0 0.5rem'}}>·</span>
               <span style={{color:pal.textMuted,fontSize:'0.88rem'}}>Lv {character.level}</span>
               <span style={{color:pal.textMuted,fontSize:'0.88rem',margin:'0 0.5rem'}}>·</span>
-              <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
-                {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
-              </span>
+              {(()=>{
+                const locId = character.location;
+                const locName = locId.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+                const locItems = character.locationInventory?.[locId] || [];
+                const hasItems = locItems.length > 0;
+                return <span style={{position:'relative',display:'inline-block'}}>
+                  <span onClick={()=>setShowLocInv(p=>!p)}
+                    style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic',cursor:'pointer'}}>
+                    {locName}{hasItems && <span style={{color:'#6eaf7a',fontSize:'0.55rem',marginLeft:'0.2rem',verticalAlign:'middle'}}>●</span>}
+                  </span>
+                  {showLocInv && (
+                    <div style={{position:'absolute',top:'100%',left:0,marginTop:'0.4rem',background:pal.headerBg,border:`1px solid ${pal.headerBorder}`,padding:'0.5rem 0.7rem',minWidth:'200px',maxWidth:'280px',zIndex:200,boxShadow:'0 4px 12px rgba(0,0,0,0.4)'}}>
+                      <div style={{color:'#8a9a6e',fontSize:'0.62rem',letterSpacing:'0.1em',marginBottom:'0.35rem'}}>
+                        ITEMS AT {locName.toUpperCase()}
+                      </div>
+                      {!hasItems
+                        ? <div style={{color:pal.textMuted,fontSize:'0.72rem',fontStyle:'italic'}}>Nothing here.</div>
+                        : (()=>{
+                            const counts = {};
+                            locItems.forEach(item => { counts[item] = (counts[item]||0)+1; });
+                            return Object.entries(counts).map(([item, count]) => (
+                              <div key={item} style={{color:'#8a9a6e',fontSize:'0.78rem',padding:'0.15rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
+                                {item} {count > 1 && <span style={{color:pal.textMuted,fontSize:'0.68rem'}}>×{count}</span>}
+                              </div>
+                            ));
+                          })()
+                      }
+                      <div style={{color:pal.textMuted,fontSize:'0.55rem',fontStyle:'italic',marginTop:'0.3rem'}}>
+                        Tell the GM to take or leave items.
+                      </div>
+                    </div>
+                  )}
+                </span>;
+              })()}
             </div>}
             <div style={{display:'flex',alignItems:'center',gap:'0.75rem',marginLeft:isDesktop?'auto':undefined}}>
-              {isDesktop && <span style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>
-                {character.location.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}
-              </span>}
+              {isDesktop && (()=>{
+                const locId = character.location;
+                const locName = locId.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+                const locItems = character.locationInventory?.[locId] || [];
+                const hasItems = locItems.length > 0;
+                return <div style={{position:'relative'}}>
+                  <span onClick={()=>setShowLocInv(p=>!p)}
+                    style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic',cursor:'pointer',userSelect:'none'}}>
+                    {locName}{hasItems && <span style={{color:'#6eaf7a',fontSize:'0.55rem',marginLeft:'0.3rem',verticalAlign:'middle'}}>●</span>}
+                  </span>
+                  {showLocInv && (
+                    <div style={{position:'absolute',top:'100%',right:0,marginTop:'0.4rem',background:pal.headerBg,border:`1px solid ${pal.headerBorder}`,padding:'0.5rem 0.7rem',minWidth:'200px',maxWidth:'280px',zIndex:200,boxShadow:'0 4px 12px rgba(0,0,0,0.4)'}}>
+                      <div style={{color:'#8a9a6e',fontSize:'0.62rem',letterSpacing:'0.1em',marginBottom:'0.35rem'}}>
+                        ITEMS AT {locName.toUpperCase()}
+                      </div>
+                      {!hasItems
+                        ? <div style={{color:pal.textMuted,fontSize:'0.72rem',fontStyle:'italic'}}>Nothing here.</div>
+                        : (()=>{
+                            const counts = {};
+                            locItems.forEach(item => { counts[item] = (counts[item]||0)+1; });
+                            return Object.entries(counts).map(([item, count]) => (
+                              <div key={item} style={{color:'#8a9a6e',fontSize:'0.78rem',padding:'0.15rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
+                                {item} {count > 1 && <span style={{color:pal.textMuted,fontSize:'0.68rem'}}>×{count}</span>}
+                              </div>
+                            ));
+                          })()
+                      }
+                      <div style={{color:pal.textMuted,fontSize:'0.55rem',fontStyle:'italic',marginTop:'0.3rem'}}>
+                        Tell the GM to take or leave items.
+                      </div>
+                    </div>
+                  )}
+                </div>;
+              })()}
               {isDesktop && <PanelButton icon="🗺" label="Map" active={false} onClick={() => setShowMap(true)}/>}
               {isDesktop && <PanelButton icon="📜" label="Lore" active={panel==='Lore'} onClick={()=>setPanel(p=>p==='Lore'?null:'Lore')}/>}
               {!isDesktop && <span style={{color:pal.textAccent,fontSize:'0.92rem',cursor:'pointer'}} onClick={()=>setPanel(p=>p==='Purse'?null:'Purse')} title="Open Purse">
@@ -1691,42 +1754,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                       });
                     })()
                 }
-                {/* Location inventory */}
-                {(()=>{
-                  const locId = character.location;
-                  const locName = locId.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
-                  const locItems = character.locationInventory?.[locId] || [];
-                  const hasItems = locItems.length > 0;
-                  return (
-                    <div style={{marginTop:'0.6rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-                      <button onClick={()=>setSidebarStash(p=>!p)}
-                        style={{background:'transparent',border:'none',color:'#8a9a6e',fontSize:'0.68rem',letterSpacing:'0.05em',cursor:'pointer',fontFamily:'Georgia, serif',padding:0,display:'flex',alignItems:'center',gap:'0.3rem',width:'100%'}}>
-                        <span>📦 {locName}</span>
-                        {hasItems && <span style={{color:'#6eaf7a',fontSize:'0.62rem'}}>({locItems.length})</span>}
-                        <span style={{marginLeft:'auto',fontSize:'0.65rem'}}>{sidebarStash?'▾':'▸'}</span>
-                      </button>
-                      {sidebarStash && (
-                        <div style={{padding:'0.3rem 0 0'}}>
-                          {!hasItems
-                            ? <div style={{color:pal.textMuted,fontSize:'0.72rem',fontStyle:'italic',padding:'0.15rem 0'}}>Nothing stored here.</div>
-                            : (()=>{
-                                const counts = {};
-                                locItems.forEach(item => { counts[item] = (counts[item]||0)+1; });
-                                return Object.entries(counts).map(([item, count]) => (
-                                  <div key={item} style={{color:'#8a9a6e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
-                                    · {item} {count > 1 && <span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
-                                  </div>
-                                ));
-                              })()
-                          }
-                          <div style={{color:pal.textMuted,fontSize:'0.58rem',fontStyle:'italic',marginTop:'0.25rem'}}>
-                            Tell the GM to store or retrieve items.
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                {/* Location inventory removed — now accessible via location name in header */}
                 <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
                   Describe item use in the input below.
                 </div>
@@ -1997,7 +2025,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                             <div onClick={()=>setExpandedSpells(prev=>({...prev,[`sb${i}`]:!prev[`sb${i}`]}))}
                               style={{cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem',userSelect:'none'}}>
                               <span style={{color:'#b08fd4',fontSize:'0.6rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
-                              <span><span style={{color:'#b08fd4'}}>✦ {sp.name}</span>
+                              <span><span style={{color:'#b08fd4'}}>{sp.name}</span>
                               <span style={{color:'#5a4a7a',fontSize:'0.6rem',marginLeft:'0.3rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
                             </div>
                             {isOpen && (
@@ -2084,11 +2112,25 @@ export default function Game({ user, onLogout, onAdmin }) {
               </div>;
             })()}
             {/* NARRATIVE LOG */}
-            <div style={{flex:1,overflowY:'auto'}} onClick={()=>showSettings&&setShowSettings(false)}>
+            <div style={{flex:1,overflowY:'auto'}} onClick={()=>{showSettings&&setShowSettings(false);showLocInv&&setShowLocInv(false);}}>
               {(()=>{
                 const currentDay = character ? (formatGameTime(character.gameMinutes || 0).dayNum) : 1;
                 const viewDay = selectedDay ?? currentDay;
-                return displayLog.filter(entry => (entry.dayNum || 1) === viewDay);
+                const filtered = displayLog.filter(entry => (entry.dayNum || 1) === viewDay);
+                const visibleEntries = filtered.filter(e => !e.hidden);
+                if (visibleEntries.length === 0) {
+                  const gt = formatGameTime(character?.gameMinutes || 0);
+                  const locName = (character?.location || 'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+                  const isCurrentDay = viewDay === currentDay;
+                  return [<div key="empty-day" style={{padding:'2rem 1.5rem',textAlign:'center'}}>
+                    <div style={{color:pal.textMuted,fontSize:'0.85rem',fontStyle:'italic',lineHeight:'1.8'}}>
+                      {isCurrentDay
+                        ? `Day ${gt.dayNum} begins in ${locName}. The ${gt.label} awaits.`
+                        : `No entries for Day ${viewDay}.`}
+                    </div>
+                  </div>];
+                }
+                return filtered;
               })().map((entry,i)=>{
                 if (entry.hidden) return null;
                 if (entry.type==='player') return (
