@@ -661,6 +661,8 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [npcPortraits, setNpcPortraits] = useState({});   // { npcId: base64png }
   const [imgConfirm, setImgConfirm]     = useState(null); // { type: 'all'|'current' } or null
   const [useGenericImage, setUseGenericImage] = useState(() => localStorage.getItem('vrc-generic-image') === 'true');
+  const [selectedDay, setSelectedDay]   = useState(null); // null = current day, number = specific day
+  const [dayInput, setDayInput]         = useState('');   // text in the day picker input
   const [cooldown, setCooldown]         = useState(0);   // seconds until GM available again
   const cooldownRef = useRef(null);
   const imageGenerating                 = useRef(new Set());
@@ -805,7 +807,8 @@ export default function Game({ user, onLogout, onAdmin }) {
   const callGM = useCallback(async (char, apiHistory, userText, isGameStart = false) => {
     setLoading(true);
     setOptions([]);
-    const playerEntry = { type: 'player', text: userText, hidden: isGameStart };
+    const currentDay = char.dayCount || 1;
+    const playerEntry = { type: 'player', text: userText, hidden: isGameStart, dayNum: currentDay };
 
     try {
       // Limit conversation history to last 10 messages to reduce token usage
@@ -880,7 +883,7 @@ export default function Game({ user, onLogout, onAdmin }) {
       const newOptions = parsed.options || [];
       const newScene   = parsed.scenePrompt || null;
       const npcIds     = (parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
-      const gmEntry    = { type: 'gm', text: parsed.narrative, scenePrompt: newScene, mood: newMood, npcIds };
+      const gmEntry    = { type: 'gm', text: parsed.narrative, scenePrompt: newScene, mood: newMood, npcIds, dayNum: newChar.dayCount || currentDay };
 
       // Fire-and-forget image generation (pass rich context for a better prompt)
       if (newScene) {
@@ -897,6 +900,9 @@ export default function Game({ user, onLogout, onAdmin }) {
       npcIds.forEach(id => fetchNpcPortrait(id));
 
       setMessages(newApiHistory);
+      // Auto-advance to current day when new messages arrive
+      setSelectedDay(null);
+      setDayInput('');
       setDisplayLog(prev => {
         const newLog = [...prev, playerEntry, gmEntry];
         persistSave(newChar, newApiHistory, newLog, newMood, newOptions, newScene);
@@ -920,10 +926,10 @@ export default function Game({ user, onLogout, onAdmin }) {
             return prev - 1;
           });
         }, 1000);
-        const errEntry = { type: 'gm', text: `The oracle needs a moment to gather its thoughts... (Rate limit reached — please wait ${wait}s before your next action.)`, mood: 'mysterious', scenePrompt: null };
+        const errEntry = { type: 'gm', text: `The oracle needs a moment to gather its thoughts... (Rate limit reached — please wait ${wait}s before your next action.)`, mood: 'mysterious', scenePrompt: null, dayNum: currentDay };
         setDisplayLog(prev => [...prev, errEntry]);
       } else {
-        const errEntry = { type: 'gm', text: "A strange silence falls... The oracle's voice fades. (Connection lost — please try again.)", mood: 'mysterious', scenePrompt: null };
+        const errEntry = { type: 'gm', text: "A strange silence falls... The oracle's voice fades. (Connection lost — please try again.)", mood: 'mysterious', scenePrompt: null, dayNum: currentDay };
         setDisplayLog(prev => [...prev, errEntry]);
       }
     }
@@ -952,8 +958,9 @@ export default function Game({ user, onLogout, onAdmin }) {
 
         const encScene    = result.parsed.scenePrompt || null;
         const encNpcIds   = (result.parsed.npcStateChanges || []).map(c => c.npcId).filter(Boolean);
-        const travelEntry = { type: 'player', text: `[Fast travel from ${fromLoc.replace(/_/g,' ')} to ${toLoc.replace(/_/g,' ')}]`, hidden: true };
-        const gmEntry     = { type: 'gm', text: result.parsed.narrative, scenePrompt: encScene, mood: result.parsed.mood || 'tense', npcIds: encNpcIds };
+        const ftDay = newChar.dayCount || character.dayCount || 1;
+        const travelEntry = { type: 'player', text: `[Fast travel from ${fromLoc.replace(/_/g,' ')} to ${toLoc.replace(/_/g,' ')}]`, hidden: true, dayNum: ftDay };
+        const gmEntry     = { type: 'gm', text: result.parsed.narrative, scenePrompt: encScene, mood: result.parsed.mood || 'tense', npcIds: encNpcIds, dayNum: ftDay };
         if (encScene) {
           fetchSceneImage(encScene, slugifyPrompt(encScene), {
             mood: result.parsed.mood || 'tense',
@@ -994,7 +1001,7 @@ export default function Game({ user, onLogout, onAdmin }) {
           newChar.knownLocations = [...newChar.knownLocations, toLoc];
         }
         const locName = toLoc.replace(/_/g,' ').replace(/\b\w/g, c => c.toUpperCase());
-        const travelEntry = { type: 'gm', text: result.travelDescription || `You arrive at ${locName} without incident.`, scenePrompt: null, mood: 'calm' };
+        const travelEntry = { type: 'gm', text: result.travelDescription || `You arrive at ${locName} without incident.`, scenePrompt: null, mood: 'calm', dayNum: character.dayCount || 1 };
 
         setDisplayLog(prev => {
           const newLog = [...prev, travelEntry];
@@ -1990,11 +1997,37 @@ export default function Game({ user, onLogout, onAdmin }) {
                 )}
               </div>
 
-              {/* GAME TIME */}
-              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem',color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic'}}>
+              {/* GAME TIME + DAY PICKER */}
+              <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                 {(()=>{
                   const gt = formatGameTime(character.gameMinutes || 0);
-                  return `Day ${gt.dayNum} · ${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm}`;
+                  const maxDay = gt.dayNum;
+                  const viewDay = selectedDay ?? maxDay;
+                  const isPast = viewDay < maxDay;
+                  return <>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'0.3rem',marginBottom:'0.3rem'}}>
+                      <button onClick={()=>{const d=Math.max(1,viewDay-1);setSelectedDay(d);setDayInput(String(d));}}
+                        disabled={viewDay<=1}
+                        style={{background:'transparent',border:'none',color:viewDay>1?pal.textAccent:'#3a3a4a',cursor:viewDay>1?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>◄</button>
+                      <div style={{display:'flex',alignItems:'center',gap:'0.25rem'}}>
+                        {isPast && <span style={{fontSize:'0.7rem'}} title="Viewing past day">📖</span>}
+                        <span style={{color:pal.textMuted,fontSize:'0.68rem'}}>Day</span>
+                        <input
+                          value={dayInput || String(viewDay)}
+                          onChange={e=>{const v=e.target.value.replace(/[^0-9]/g,'');setDayInput(v);}}
+                          onBlur={()=>{const n=parseInt(dayInput);if(n>=1&&n<=maxDay){setSelectedDay(n===maxDay?null:n);}setDayInput('');}}
+                          onKeyDown={e=>{if(e.key==='Enter'){e.target.blur();}}}
+                          style={{width:'1.8rem',background:'transparent',border:`1px solid ${pal.panelBorder}`,borderRadius:'2px',color:isPast?'#c9a96e':pal.textAccent,fontSize:'0.72rem',textAlign:'center',padding:'0.1rem',fontFamily:'Georgia, serif',outline:'none'}}
+                        />
+                      </div>
+                      <button onClick={()=>{const d=Math.min(maxDay,viewDay+1);setSelectedDay(d===maxDay?null:d);setDayInput('');}}
+                        disabled={viewDay>=maxDay}
+                        style={{background:'transparent',border:'none',color:viewDay<maxDay?pal.textAccent:'#3a3a4a',cursor:viewDay<maxDay?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>►</button>
+                    </div>
+                    <div style={{color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',textAlign:'center'}}>
+                      {isPast ? `Viewing Day ${viewDay}` : `${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm}`}
+                    </div>
+                  </>;
                 })()}
               </div>
             </div>
@@ -2002,9 +2035,37 @@ export default function Game({ user, onLogout, onAdmin }) {
 
           {/* NARRATIVE + INPUT column */}
           <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            {/* MOBILE DAY PICKER */}
+            {!isDesktop && character && (()=>{
+              const gt = formatGameTime(character.gameMinutes || 0);
+              const maxDay = gt.dayNum;
+              const viewDay = selectedDay ?? maxDay;
+              const isPast = viewDay < maxDay;
+              return <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'0.4rem',padding:'0.3rem 0.5rem',background:pal.headerBg,borderBottom:`1px solid ${pal.panelBorder}`,flexShrink:0}}>
+                <button onClick={()=>{const d=Math.max(1,viewDay-1);setSelectedDay(d);setDayInput(String(d));}}
+                  disabled={viewDay<=1}
+                  style={{background:'transparent',border:'none',color:viewDay>1?pal.textAccent:'#3a3a4a',cursor:viewDay>1?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>◄</button>
+                {isPast && <span style={{fontSize:'0.7rem'}}>📖</span>}
+                <span style={{color:pal.textMuted,fontSize:'0.68rem'}}>Day</span>
+                <input value={dayInput||String(viewDay)} onChange={e=>{const v=e.target.value.replace(/[^0-9]/g,'');setDayInput(v);}}
+                  onBlur={()=>{const n=parseInt(dayInput);if(n>=1&&n<=maxDay){setSelectedDay(n===maxDay?null:n);}setDayInput('');}}
+                  onKeyDown={e=>{if(e.key==='Enter')e.target.blur();}}
+                  style={{width:'1.8rem',background:'transparent',border:`1px solid ${pal.panelBorder}`,borderRadius:'2px',color:isPast?'#c9a96e':pal.textAccent,fontSize:'0.72rem',textAlign:'center',padding:'0.1rem',fontFamily:'Georgia, serif',outline:'none'}}/>
+                <button onClick={()=>{const d=Math.min(maxDay,viewDay+1);setSelectedDay(d===maxDay?null:d);setDayInput('');}}
+                  disabled={viewDay>=maxDay}
+                  style={{background:'transparent',border:'none',color:viewDay<maxDay?pal.textAccent:'#3a3a4a',cursor:viewDay<maxDay?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>►</button>
+                <span style={{color:pal.textMuted,fontSize:'0.58rem',fontStyle:'italic',marginLeft:'0.3rem'}}>
+                  {isPast ? `Viewing Day ${viewDay}` : `${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm}`}
+                </span>
+              </div>;
+            })()}
             {/* NARRATIVE LOG */}
             <div style={{flex:1,overflowY:'auto'}} onClick={()=>showSettings&&setShowSettings(false)}>
-              {displayLog.map((entry,i)=>{
+              {(()=>{
+                const currentDay = character ? (formatGameTime(character.gameMinutes || 0).dayNum) : 1;
+                const viewDay = selectedDay ?? currentDay;
+                return displayLog.filter(entry => (entry.dayNum || 1) === viewDay);
+              })().map((entry,i)=>{
                 if (entry.hidden) return null;
                 if (entry.type==='player') return (
                   <div key={i} style={{padding:'0.6rem 1rem',marginBottom:'0.25rem'}}>
