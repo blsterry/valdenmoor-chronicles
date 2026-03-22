@@ -2030,8 +2030,8 @@ export default function Game({ user, onLogout, onAdmin }) {
                             </div>
                             {isOpen && (
                               <div style={{paddingLeft:'1.1rem',marginTop:'0.15rem'}}>
-                                <div style={{color:'#6a5a7a',fontSize:'0.68rem'}}>{sp.description || 'No description available.'}</div>
-                                <div style={{color:'#4a3a5a',fontSize:'0.6rem',fontStyle:'italic'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
+                                <div style={{color:'#6a5a7a',fontSize:'0.72rem'}}>{sp.description || 'No description available.'}</div>
+                                <div style={{color:'#4a3a5a',fontSize:'0.65rem',fontStyle:'italic'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
                               </div>
                             )}
                           </div>
@@ -2076,7 +2076,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                         disabled={viewDay>=maxDay}
                         style={{background:'transparent',border:'none',color:viewDay<maxDay?pal.textAccent:'#3a3a4a',cursor:viewDay<maxDay?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>►</button>
                     </div>
-                    <div style={{color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',textAlign:'center'}}>
+                    <div style={{color:pal.textMuted,fontSize:'0.72rem',fontStyle:'italic',textAlign:'center'}}>
                       {isPast ? `Viewing Day ${viewDay}` : `${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm}`}
                     </div>
                   </>;
@@ -2122,16 +2122,15 @@ export default function Game({ user, onLogout, onAdmin }) {
                   const gt = formatGameTime(character?.gameMinutes || 0);
                   const locName = (character?.location || 'unknown').replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
                   const isCurrentDay = viewDay === currentDay;
-                  return [<div key="empty-day" style={{padding:'2rem 1.5rem',textAlign:'center'}}>
-                    <div style={{color:pal.textMuted,fontSize:'0.85rem',fontStyle:'italic',lineHeight:'1.8'}}>
+                  return <div key="empty-day" style={{padding:'2rem 1.5rem',textAlign:'center'}}>
+                    <div style={{color:pal.textMuted,fontSize:'0.95rem',fontStyle:'italic',lineHeight:'1.8'}}>
                       {isCurrentDay
                         ? `Day ${gt.dayNum} begins in ${locName}. The ${gt.label} awaits.`
                         : `No entries for Day ${viewDay}.`}
                     </div>
-                  </div>];
+                  </div>;
                 }
-                return filtered;
-              })().map((entry,i)=>{
+                return filtered.map((entry,i)=>{
                 if (entry.hidden) return null;
                 if (entry.type==='player') return (
                   <div key={i} style={{padding:'0.6rem 1rem',marginBottom:'0.25rem'}}>
@@ -2171,7 +2170,8 @@ export default function Game({ user, onLogout, onAdmin }) {
                     </div>
                   </div>
                 );
-              })}
+              });
+              })()}
               {loading&&<div style={{textAlign:'center',padding:'1.5rem',color:lightMode?'#7a5a2a':'#4a3a5a',fontStyle:'italic',fontSize:'0.85rem',letterSpacing:'0.1em'}}>✦ &nbsp; the oracle stirs &nbsp; ✦</div>}
               <div ref={logEndRef}/>
             </div>
