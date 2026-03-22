@@ -153,6 +153,17 @@ app.get('/api/save', auth, async (req, res) => {
     rows[0].character = c;
     await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
   }
+  // One-time MP reconciliation: if MP is 0 but game time has passed, restore based on passive regen
+  if (rows[0] && rows[0].character && !rows[0].character._mpRegenFix) {
+    const c = rows[0].character;
+    if ((c.mp || 0) === 0 && (c.gameMinutes || 0) > 60) {
+      // Passive regen would have given +1 MP per hour
+      c.mp = Math.min(c.maxMp || 14, Math.floor((c.gameMinutes || 0) / 60));
+    }
+    c._mpRegenFix = '1';
+    rows[0].character = c;
+    await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
+  }
   // Inventory normalization migration: expand "3x Hardtack" → 3× "Hardtack"
   if (rows[0] && rows[0].character && rows[0].character.inventory) {
     const c = rows[0].character;
@@ -1019,7 +1030,14 @@ SENSORY REALISM: Respect physical distance. Standing outside a building, you hea
 RESPONSE LENGTH: Use as many or as few paragraphs as the moment requires. A quick action might need 1-2 sentences. A dramatic scene might need 3-4 paragraphs. Do NOT default to 3 paragraphs every time. Match the length to the weight of the moment.
 
 DIRECT PLAYER QUESTIONS ("to GM:" prefix):
-If the player's message starts with "to GM:" or similar out-of-game phrasing, you MUST respond DIRECTLY and concisely as the GM — not in narrative. ACTUALLY ANSWER THEIR QUESTION with specific, useful information. Do NOT say "the scene continues unchanged" — that is NOT an answer. Do NOT generate a scene, advance time, change state, or write narrative prose. Set minutesElapsed to 0 and leave all stateChanges null. The narrative field should contain your direct, helpful answer. Still include a scenePrompt reflecting the current scene (unchanged). If the question is about game mechanics, explain how they work. If you don't know, say so honestly.
+If the player's message starts with "to GM:" or similar out-of-game phrasing:
+1. ANSWER THE ACTUAL QUESTION. Read what they asked and provide a specific, helpful response.
+2. The narrative field MUST contain your answer — NOT a scene description, NOT "the scene continues unchanged".
+3. Set minutesElapsed to 0 and leave all stateChanges null.
+4. If they ask about game mechanics (MP regen, HP recovery, etc.), explain the rules: MP recovers +1/hour passively and fully on sleep. HP recovers +1/6hrs naturally and fully on sleep. Meditation skill: 2-5 HP/hr, once per day.
+5. If they report a bug or issue with their stats, you CAN use stateChanges to fix it (e.g., set mp to the correct value).
+6. NEVER respond with scene narration to a "to GM:" question. NEVER say "the scene continues unchanged" — that phrase is BANNED.
+Example: Player says "to GM: how does MP regen work?" → narrative: "MP regenerates at +1 per hour passively. A full night's sleep restores all MP. I can also restore MP through potions or magical events."
 
 COMBAT & LEVELING:
 - XP for combat: base by enemy difficulty. DIMINISHING RETURNS on same enemy type (50% second fight, 25% third+). Track via grind_[enemytype] flags.
