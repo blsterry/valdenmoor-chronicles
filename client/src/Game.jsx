@@ -100,6 +100,17 @@ function slugifyPrompt(p) {
   return (p || '').toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 }
 
+// Default items at locations — seeded on first visit
+const DEFAULT_LOCATION_ITEMS = {
+  seras_cabin:    ['Dried Herbs', 'Tallow Candle', 'Woolen Blanket', 'Clay Mug', 'Mortar & Pestle'],
+  crossroads:     ['Stale Bread', 'Ale Mug'],
+  thornhaven:     ['Apple', 'Bread Loaf', 'Rope (50ft)'],
+  millhaven:      ['Flour Sack', 'Wooden Bucket'],
+  hearthwick:     ['Dried Meat', 'Tattered Blanket'],
+  hermits_tower:  ['Dusty Tome', 'Cracked Lens', 'Inkwell'],
+  bren_monastery: ['Candle', 'Prayer Beads', 'Bread Loaf'],
+};
+
 const INITIAL_CHARACTER = {
   name: '', gender: 'they', backstory: '', race: 'Human', level: 1, xp: 0, xpToNext: 100,
   stats: { STR: 8, DEX: 8, INT: 8, WIS: 8, CON: 8, CHA: 8 },
@@ -649,6 +660,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [showChangePw, setShowChangePw]   = useState(false);
   const [sidebarSkills, setSidebarSkills] = useState(false);
   const [sidebarSpells, setSidebarSpells] = useState(false);
+  const [sidebarStash, setSidebarStash]   = useState(false);
   const [expandedSpells, setExpandedSpells] = useState({});  // { spellIndex: true/false }
   const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
   const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
@@ -731,6 +743,14 @@ export default function Game({ user, onLogout, onAdmin }) {
         const ch = saved.character;
         if (ch.inventory) ch.inventory = normalizeInventoryItems(ch.inventory);
         if (!ch.locationInventory) ch.locationInventory = {};
+        // Seed default items at locations not yet visited/modified
+        if (!ch._locationSeeded) ch._locationSeeded = {};
+        for (const [locId, items] of Object.entries(DEFAULT_LOCATION_ITEMS)) {
+          if (!ch._locationSeeded[locId]) {
+            ch.locationInventory[locId] = [...(ch.locationInventory[locId] || []), ...items];
+            ch._locationSeeded[locId] = true;
+          }
+        }
         // Ensure spells have all required display fields
         if (ch.spells) {
           ch.spells = ch.spells.map(sp => ({
@@ -1639,23 +1659,7 @@ export default function Game({ user, onLogout, onAdmin }) {
 
               {/* ── PACK ── */}
               {panel==='Pack'&&(<>
-                {/* Equipped items section */}
-                {(()=>{
-                  const eq = character.equipment || {};
-                  const equipped = Object.entries(EQUIPMENT_SLOTS).filter(([slot])=>eq[slot]);
-                  if(equipped.length===0) return null;
-                  return <>
-                    <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>EQUIPPED</div>
-                    {equipped.map(([slot,{label}])=>(
-                      <div key={slot} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                        <span>· {eq[slot]} <span style={{color:pal.textMuted,fontSize:'0.65rem'}}>({label})</span></span>
-                        <button onClick={()=>unequipItem(slot)} style={{background:'transparent',border:`1px solid rgba(201,110,110,0.4)`,color:'#c97a6e',fontSize:'0.6rem',padding:'0.15rem 0.4rem',cursor:'pointer',fontFamily:'Georgia, serif'}}>Unequip</button>
-                      </div>
-                    ))}
-                    <div style={{height:'0.6rem'}}/>
-                  </>;
-                })()}
-                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>CARRIED ({character.inventory.length} items)</div>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>INVENTORY ({character.inventory.length} items)</div>
                 {character.inventory.length===0
                   ? <div style={{color:pal.textMuted,fontSize:'0.8rem',fontStyle:'italic'}}>Nothing carried.</div>
                   : (() => {
@@ -1663,48 +1667,68 @@ export default function Game({ user, onLogout, onAdmin }) {
                       character.inventory.forEach(item=>{counts[item]=(counts[item]||0)+1;});
                       const eq = character.equipment || {};
                       const equippedItems = Object.values(eq).filter(Boolean);
+                      // Find which slot an equipped item occupies (for unequip)
+                      const itemToSlot = {};
+                      Object.entries(eq).forEach(([slot, val]) => { if(val) itemToSlot[val] = slot; });
                       return Object.entries(counts).map(([item,count])=>{
                         const isEquipped = equippedItems.includes(item);
+                        const eqSlot = itemToSlot[item]; // actual slot if equipped
                         const slot = guessSlot(item);
                         const canEquip = slot && !isEquipped;
-                        // Check if slot is available
                         let slotAvailable = false;
                         if(canEquip) {
                           if(slot==='ring') slotAvailable = !eq.ring1 || !eq.ring2;
                           else slotAvailable = !eq[slot];
                         }
                         return (
-                          <div key={item} style={{color:'#c9a96e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'0.3rem'}}>
-                            <span style={{flex:1}}>· {item}{isEquipped?' ⬡':''}</span>
+                          <div key={item} style={{color:isEquipped?'#c9a96e':'#a89a7a',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:'0.3rem'}}>
+                            <span style={{flex:1}}>· {item}{isEquipped?<span style={{color:'#6eaf7a',fontSize:'0.6rem',marginLeft:'0.3rem'}}>{EQUIPMENT_SLOTS[eqSlot]?.label||'Equipped'}</span>:''}</span>
                             {count>1&&<span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
+                            {isEquipped&&eqSlot&&<button onClick={()=>unequipItem(eqSlot)} style={{background:'transparent',border:`1px solid rgba(201,110,110,0.4)`,color:'#c97a6e',fontSize:'0.6rem',padding:'0.15rem 0.4rem',cursor:'pointer',fontFamily:'Georgia, serif',whiteSpace:'nowrap'}}>Unequip</button>}
                             {canEquip&&slotAvailable&&<button onClick={()=>equipItem(item)} style={{background:'transparent',border:`1px solid rgba(110,169,110,0.4)`,color:'#6eaf7a',fontSize:'0.6rem',padding:'0.15rem 0.4rem',cursor:'pointer',fontFamily:'Georgia, serif',whiteSpace:'nowrap'}}>Equip</button>}
                           </div>
                         );
                       });
                     })()
                 }
-                {/* Location stash */}
-                {(character.locationInventory?.[character.location]?.length > 0) && (
-                  <div style={{marginTop:'0.6rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-                    <div style={{color:'#8a9a6e',fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.4rem'}}>
-                      STASHED HERE ({character.locationInventory[character.location].length} items)
-                    </div>
-                    {(() => {
-                      const counts = {};
-                      character.locationInventory[character.location].forEach(item => { counts[item] = (counts[item]||0)+1; });
-                      return Object.entries(counts).map(([item, count]) => (
-                        <div key={item} style={{color:'#8a9a6e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
-                          · {item} {count > 1 && <span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
+                {/* Location inventory */}
+                {(()=>{
+                  const locId = character.location;
+                  const locName = locId.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+                  const locItems = character.locationInventory?.[locId] || [];
+                  const hasItems = locItems.length > 0;
+                  return (
+                    <div style={{marginTop:'0.6rem',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
+                      <button onClick={()=>setSidebarStash(p=>!p)}
+                        style={{background:'transparent',border:'none',color:'#8a9a6e',fontSize:'0.68rem',letterSpacing:'0.05em',cursor:'pointer',fontFamily:'Georgia, serif',padding:0,display:'flex',alignItems:'center',gap:'0.3rem',width:'100%'}}>
+                        <span>📦 {locName}</span>
+                        {hasItems && <span style={{color:'#6eaf7a',fontSize:'0.62rem'}}>({locItems.length})</span>}
+                        <span style={{marginLeft:'auto',fontSize:'0.65rem'}}>{sidebarStash?'▾':'▸'}</span>
+                      </button>
+                      {sidebarStash && (
+                        <div style={{padding:'0.3rem 0 0'}}>
+                          {!hasItems
+                            ? <div style={{color:pal.textMuted,fontSize:'0.72rem',fontStyle:'italic',padding:'0.15rem 0'}}>Nothing stored here.</div>
+                            : (()=>{
+                                const counts = {};
+                                locItems.forEach(item => { counts[item] = (counts[item]||0)+1; });
+                                return Object.entries(counts).map(([item, count]) => (
+                                  <div key={item} style={{color:'#8a9a6e',fontSize:'0.82rem',padding:'0.2rem 0',borderBottom:`1px solid ${pal.panelBorder}`}}>
+                                    · {item} {count > 1 && <span style={{color:pal.textMuted,fontSize:'0.72rem'}}>×{count}</span>}
+                                  </div>
+                                ));
+                              })()
+                          }
+                          <div style={{color:pal.textMuted,fontSize:'0.58rem',fontStyle:'italic',marginTop:'0.25rem'}}>
+                            Tell the GM to store or retrieve items.
+                          </div>
                         </div>
-                      ));
-                    })()}
-                    <div style={{color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',marginTop:'0.3rem'}}>
-                      Tell the GM to store or retrieve items.
+                      )}
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 <div style={{marginTop:'0.6rem',color:pal.textMuted,fontSize:'0.65rem',fontStyle:'italic',borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.4rem'}}>
-                  Use any item by describing it in the input below. Equippable items show an Equip button.
+                  Describe item use in the input below.
                 </div>
               </>)}
 

@@ -1146,12 +1146,15 @@ If the player requests to advance time by days or a week with planned activities
 9. The world should feel like it moved forward — not frozen in time waiting for the player
 
 LOCATION STASH SYSTEM:
+- Locations can have their own inventory — items stored at that place. The player sees these in their Pack panel under the location name.
+- Some locations start with default items (a cabin has candles and herbs, a monastery has prayer beads, etc.). The player can take these or leave them.
 - Players can store items at locations they control or have shelter in (cabins, camps, inns with a rented room, their own base).
-- To stash items: use stashItem in stateChanges: { "items": ["Herb Bundle", "Old Map"], "location": "seras_cabin" }
-- To retrieve items: use unstashItem in stateChanges: { "items": ["Herb Bundle"], "location": "seras_cabin" }
+- To add items to a location: use stashItem in stateChanges: { "items": ["Herb Bundle", "Old Map"], "location": "seras_cabin" }
+- To remove items from a location: use unstashItem in stateChanges: { "items": ["Herb Bundle"], "location": "seras_cabin" }
 - The location MUST match the player's current location. Items move between carried inventory and location stash — they are NOT duplicated.
-- Use stashItem/unstashItem when the player explicitly stores or retrieves items (e.g. "I leave my supplies at the cottage", "I grab the rope from my stash").
-- The player's locationInventory in their state shows what is stored where. Reference this when the player asks what they have stored.
+- Use stashItem/unstashItem when the player explicitly stores or retrieves items (e.g. "I leave my supplies at the cottage", "I grab the rope from my stash", "I take the candle from the shelf").
+- SHOPS & MERCHANTS: When a player enters a shop or market, you can use stashItem to populate the location's inventory with wares the merchant sells. The player sees these items and can ask to buy them. When they buy, use unstashItem + addInventory + goldDelta/silverDelta/copperDelta.
+- The player's locationInventory in their state shows what is stored where. Reference this when the player asks what they have stored or what's available at a location.
 
 WAYPOINT RULES:
 - Use addWaypoint when player explicitly establishes a camp, sets up a base, or declares intent to return.
