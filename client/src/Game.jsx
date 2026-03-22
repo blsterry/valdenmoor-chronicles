@@ -229,13 +229,20 @@ const GameEngine = {
       c.hunger  = Math.min(100, (c.hunger  || 0) + (mins / 60) * 1);
       c.thirst  = Math.min(100, (c.thirst  || 0) + (mins / 60) * 2);
       c.fatigue = Math.min(100, (c.fatigue || 0) + (mins / 60) * 1.25);
+      // MP regeneration: +1 MP per hour passively, sleeping recovers faster (handled via fatigueDelta)
+      const mpRegen = Math.floor((mins / 60) * 1);
+      if (mpRegen > 0) c.mp = Math.min(c.maxMp, (c.mp || 0) + mpRegen);
       // Sync dayCount from gameMinutes
       c.dayCount = Math.floor((c.gameMinutes + GAME_START_OFFSET) / 1440) + 1;
     }
     // GM-driven adjustments (eating, drinking, resting)
     if (sc.hungerDelta  != null) c.hunger  = Math.max(0, Math.min(100, (c.hunger  || 0) + sc.hungerDelta));
     if (sc.thirstDelta  != null) c.thirst  = Math.max(0, Math.min(100, (c.thirst  || 0) + sc.thirstDelta));
-    if (sc.fatigueDelta != null) c.fatigue = Math.max(0, Math.min(100, (c.fatigue || 0) + sc.fatigueDelta));
+    if (sc.fatigueDelta != null) {
+      c.fatigue = Math.max(0, Math.min(100, (c.fatigue || 0) + sc.fatigueDelta));
+      // Sleep bonus: large fatigue relief (sleep) also restores MP to full
+      if (sc.fatigueDelta <= -60) c.mp = c.maxMp;
+    }
 
     if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
     if (sc.mp != null)   c.mp   = Math.max(0, Math.min(sc.mp, c.maxMp));
@@ -1785,7 +1792,7 @@ export default function Game({ user, onLogout, onAdmin }) {
                       <div onClick={()=>setExpandedSpells(prev=>({...prev,[i]:!prev[i]}))}
                         style={{color:'#b08fd4',fontSize:'0.88rem',cursor:'pointer',display:'flex',alignItems:'center',gap:'0.4rem',userSelect:'none'}}>
                         <span style={{color:'#b08fd4',fontSize:'0.65rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
-                        <span>✦ {sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
+                        <span>{sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
                       </div>
                       {isOpen && (<>
                         <div style={{color:'#6a5a7a',fontSize:'0.75rem',marginTop:'0.25rem',paddingLeft:'1.1rem'}}>{sp.description || 'No description available.'}</div>
