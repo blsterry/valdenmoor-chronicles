@@ -780,9 +780,9 @@ export default function Game({ user, onLogout, onAdmin }) {
             ch._locationSeeded[locId] = true;
           }
         }
-        // Ensure spells have all required display fields
+        // Filter out invalid spells (no name) and ensure required display fields
         if (ch.spells) {
-          ch.spells = ch.spells.map(sp => ({
+          ch.spells = ch.spells.filter(sp => sp && sp.name).map(sp => ({
             ...sp,
             mpCost: sp.mpCost ?? null,
             description: sp.description || null,
