@@ -164,12 +164,12 @@ app.get('/api/save', auth, async (req, res) => {
     rows[0].character = c;
     await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
   }
-  // One-time day counter fix: reset gameMinutes to Day 26
-  if (rows[0] && rows[0].character && !rows[0].character._dayCounterFix) {
+  // Day counter fix v2: reset gameMinutes to Day 28, 8:00am
+  if (rows[0] && rows[0].character && !rows[0].character._dayCounterFix2) {
     const c = rows[0].character;
-    c.gameMinutes = 34920; // Day 26, 18:00 (same time-of-day as game start)
-    c.dayCount = 26;
-    c._dayCounterFix = '1';
+    c.gameMinutes = 38280; // Day 28, 8:00am
+    c.dayCount = 28;
+    c._dayCounterFix2 = '1';
     rows[0].character = c;
     await pool.query('UPDATE saves SET character = $1 WHERE user_id = $2', [JSON.stringify(c), req.user.id]).catch(() => {});
   }

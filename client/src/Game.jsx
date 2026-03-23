@@ -1935,11 +1935,11 @@ export default function Game({ user, onLogout, onAdmin }) {
 
           {/* SIDEBAR — desktop only */}
           {isDesktop && (
-            <div style={{width:'260px',minWidth:'260px',overflowY:'auto',borderRight:`1px solid ${pal.headerBorder}`,background:pal.headerBg,padding:'0.6rem 0.7rem',display:'flex',flexDirection:'column',gap:'0.6rem',fontSize:'0.78rem'}}>
+            <div style={{width:'310px',minWidth:'310px',overflowY:'auto',borderRight:`1px solid ${pal.headerBorder}`,background:pal.headerBg,padding:'0.7rem 0.85rem',display:'flex',flexDirection:'column',gap:'0.65rem',fontSize:'0.85rem'}}>
               {/* NAME / LEVEL */}
               <div>
-                <div style={{color:pal.textAccent,fontSize:'1.05rem'}}>{character.name}</div>
-                <div style={{color:pal.textMuted,fontSize:'0.72rem'}}>Level {character.level} · {character.race}</div>
+                <div style={{color:pal.textAccent,fontSize:'1.15rem'}}>{character.name}</div>
+                <div style={{color:pal.textMuted,fontSize:'0.8rem'}}>Level {character.level} · {character.race}</div>
               </div>
 
               {/* HP / MP / XP */}
@@ -1958,23 +1958,23 @@ export default function Game({ user, onLogout, onAdmin }) {
                 if(f>=15) items.push({label:f<30?'Slightly Tired':f<50?'Tired':f<75?'Exhausted':'Collapsing',color:f<30?'#6a5a4a':f<50?'#c9a96e':f<75?'#e0a030':'#c94a4a'});
                 if(items.length===0) return null;
                 return <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                  <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>CONDITION</div>
-                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.72rem',padding:'0.1rem 0'}}>{(color==='#e0a030'||color==='#c94a4a'?'⚠ ':'')+label}</div>)}
+                  <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>CONDITION</div>
+                  {items.map(({label,color})=><div key={label} style={{color,fontSize:'0.8rem',padding:'0.1rem 0'}}>{(color==='#e0a030'||color==='#c94a4a'?'⚠ ':'')+label}</div>)}
                 </div>;
               })()}
 
               {/* STATS */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>
                   STATS{character.statPoints>0&&<span style={{color:'#c9a96e',marginLeft:'0.4rem'}}>({character.statPoints} to spend)</span>}
                 </div>
-                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.3rem'}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'0.35rem'}}>
                   {Object.entries(character.stats).map(([s,v])=>{
                     const mod=Math.floor((v-10)/2);
-                    return <div key={s} style={{textAlign:'center',padding:'0.25rem',border:`1px solid ${pal.panelBorder}`,position:'relative'}}>
-                      <div style={{color:pal.textMuted,fontSize:'0.55rem',letterSpacing:'0.08em'}}>{s}</div>
-                      <div style={{color:pal.textAccent,fontSize:'1rem'}}>{v}</div>
-                      <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.58rem'}}>{mod>=0?'+':''}{mod}</div>
+                    return <div key={s} style={{textAlign:'center',padding:'0.3rem',border:`1px solid ${pal.panelBorder}`,position:'relative'}}>
+                      <div style={{color:pal.textMuted,fontSize:'0.62rem',letterSpacing:'0.08em'}}>{s}</div>
+                      <div style={{color:pal.textAccent,fontSize:'1.1rem'}}>{v}</div>
+                      <div style={{color:mod>=0?'#4caf7a':'#c94a4a',fontSize:'0.65rem'}}>{mod>=0?'+':''}{mod}</div>
                       {character.statPoints>0&&v<20&&(
                         <button onClick={()=>spendStatPoint(s)}
                           style={{position:'absolute',top:'-2px',right:'-2px',background:'#c9a96e',color:'#1a1a2e',border:'none',borderRadius:'50%',width:'16px',height:'16px',fontSize:'0.65rem',cursor:'pointer',lineHeight:'16px',padding:0,fontWeight:'bold'}}>+</button>
@@ -1986,33 +1986,33 @@ export default function Game({ user, onLogout, onAdmin }) {
 
               {/* PURSE */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>PURSE</div>
-                <div style={{display:'flex',gap:'0.6rem',alignItems:'baseline'}}>
-                  <span style={{color:'#c9a96e'}}>{character.gold||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> gp</span></span>
-                  <span style={{color:'#9a9aaa'}}>{character.silver||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> sp</span></span>
-                  <span style={{color:'#b87333'}}>{character.copper||0}<span style={{fontSize:'0.62rem',opacity:0.7}}> cp</span></span>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.3rem'}}>PURSE</div>
+                <div style={{display:'flex',gap:'0.7rem',alignItems:'baseline',fontSize:'0.9rem'}}>
+                  <span style={{color:'#c9a96e'}}>{character.gold||0}<span style={{fontSize:'0.7rem',opacity:0.7}}> gp</span></span>
+                  <span style={{color:'#9a9aaa'}}>{character.silver||0}<span style={{fontSize:'0.7rem',opacity:0.7}}> sp</span></span>
+                  <span style={{color:'#b87333'}}>{character.copper||0}<span style={{fontSize:'0.7rem',opacity:0.7}}> cp</span></span>
                 </div>
               </div>
 
               {/* PACK */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                 <button onClick={()=>setPanel(p=>p==='Pack'?null:'Pack')}
-                  style={{background:panel==='Pack'?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${panel==='Pack'?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:panel==='Pack'?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
+                  style={{background:panel==='Pack'?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${panel==='Pack'?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:panel==='Pack'?'#e8c87a':'#8a7a5a',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.82rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
                   🎒 Pack ({character.inventory.length})
                 </button>
               </div>
 
               {/* EQUIPPED ITEMS */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                <div style={{color:pal.textMuted,fontSize:'0.58rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>EQUIPPED</div>
+                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>EQUIPPED</div>
                 {(()=>{
                   const eq = character.equipment || {};
                   const filled = Object.entries(EQUIPMENT_SLOTS).filter(([slot])=>eq[slot]);
-                  if(filled.length===0) return <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>Nothing equipped</div>;
+                  if(filled.length===0) return <div style={{color:pal.textMuted,fontSize:'0.78rem',fontStyle:'italic'}}>Nothing equipped</div>;
                   return filled.map(([slot])=>(
-                    <div key={slot} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.1rem 0',fontSize:'0.68rem'}}>
+                    <div key={slot} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.1rem 0',fontSize:'0.78rem'}}>
                       <span style={{color:pal.textAccent}}>{eq[slot]}</span>
-                      <span style={{color:pal.textMuted,fontSize:'0.55rem'}}>{EQUIPMENT_SLOTS[slot].label}</span>
+                      <span style={{color:pal.textMuted,fontSize:'0.65rem'}}>{EQUIPMENT_SLOTS[slot].label}</span>
                     </div>
                   ));
                 })()}
@@ -2021,29 +2021,29 @@ export default function Game({ user, onLogout, onAdmin }) {
               {/* SKILLS — toggle button + collapsible */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                 <button onClick={()=>setSidebarSkills(p=>!p)}
-                  style={{background:sidebarSkills?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSkills?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSkills?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
-                  ⚔ Skills ({character.skills?.length||0}) <span style={{float:'right',fontSize:'0.75rem'}}>{sidebarSkills?'▾':'▸'}</span>
+                  style={{background:sidebarSkills?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSkills?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSkills?'#e8c87a':'#8a7a5a',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.82rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
+                  ⚔ Skills ({character.skills?.length||0}) <span style={{float:'right',fontSize:'0.85rem'}}>{sidebarSkills?'▾':'▸'}</span>
                 </button>
                 {sidebarSkills && (
                   <div style={{padding:'0.4rem 0.2rem 0'}}>
                     {character.skills?.length===0
-                      ? <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>No skills yet.</div>
+                      ? <div style={{color:pal.textMuted,fontSize:'0.78rem',fontStyle:'italic'}}>No skills yet.</div>
                       : character.skills.map((sk,i)=>{
                         const isOpen = expandedSkills[i];
                         return (
-                        <div key={sk.id} style={{padding:'0.15rem 0',fontSize:'0.72rem'}}>
+                        <div key={sk.id} style={{padding:'0.15rem 0',fontSize:'0.82rem'}}>
                           <div onClick={()=>setExpandedSkills(prev=>({...prev,[i]:!prev[i]}))}
                             style={{cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem',userSelect:'none'}}>
-                            <span style={{color:pal.textAccent,fontSize:'0.6rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
+                            <span style={{color:pal.textAccent,fontSize:'0.7rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
                             <span style={{flex:1,display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
                               <span style={{color:pal.textAccent}}>{sk.name}{sk.selfTaught?' *':''}</span>
-                              <span style={{color:pal.textMuted,fontSize:'0.62rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
+                              <span style={{color:pal.textMuted,fontSize:'0.7rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
                             </span>
                           </div>
                           {isOpen && sk.description && (
                             <div style={{paddingLeft:'1.1rem',marginTop:'0.15rem'}}>
-                              <div style={{color:pal.textMuted,fontSize:'0.68rem'}}>{sk.description}</div>
-                              {sk.taughtBy && <div style={{color:pal.textMuted,fontSize:'0.6rem',fontStyle:'italic',opacity:0.7}}>Taught by {sk.taughtBy}</div>}
+                              <div style={{color:pal.textMuted,fontSize:'0.76rem'}}>{sk.description}</div>
+                              {sk.taughtBy && <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic',opacity:0.7}}>Taught by {sk.taughtBy}</div>}
                             </div>
                           )}
                         </div>
@@ -2057,37 +2057,39 @@ export default function Game({ user, onLogout, onAdmin }) {
               {/* SPELLS — toggle button + collapsible */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
                 <button onClick={()=>setSidebarSpells(p=>!p)}
-                  style={{background:sidebarSpells?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSpells?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSpells?'#e8c87a':'#8a7a5a',padding:'0.25rem 0.6rem',cursor:'pointer',fontSize:'0.72rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
-                  ✨ Spells ({character.spells?.length||0}) <span style={{float:'right',fontSize:'0.75rem'}}>{sidebarSpells?'▾':'▸'}</span>
+                  style={{background:sidebarSpells?'rgba(201,169,110,0.15)':'transparent',border:`1px solid ${sidebarSpells?'rgba(201,169,110,0.5)':'rgba(201,169,110,0.2)'}`,color:sidebarSpells?'#e8c87a':'#8a7a5a',padding:'0.3rem 0.6rem',cursor:'pointer',fontSize:'0.82rem',fontFamily:'Georgia, serif',transition:'all 0.15s',width:'100%',textAlign:'left'}}>
+                  ✨ Spells ({character.spells?.length||0}) <span style={{float:'right',fontSize:'0.85rem'}}>{sidebarSpells?'▾':'▸'}</span>
                 </button>
                 {sidebarSpells && (
                   <div style={{padding:'0.4rem 0.2rem 0'}}>
                     {character.spells?.length===0 && (!character.spellLearning?.length)
-                      ? <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>No spells yet.</div>
+                      ? <div style={{color:pal.textMuted,fontSize:'0.78rem',fontStyle:'italic'}}>No spells yet.</div>
                       : <>
                         {character.spells.map((sp,i)=>{
                           const isOpen = expandedSpells[`sb${i}`];
                           return (
-                          <div key={i} style={{padding:'0.15rem 0',fontSize:'0.72rem'}}>
+                          <div key={i} style={{padding:'0.2rem 0',fontSize:'0.82rem'}}>
                             <div onClick={()=>setExpandedSpells(prev=>({...prev,[`sb${i}`]:!prev[`sb${i}`]}))}
                               style={{cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem',userSelect:'none'}}>
-                              <span style={{color:'#b08fd4',fontSize:'0.6rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
-                              <span><span style={{color:'#b08fd4'}}>{sp.name}</span>
-                              <span style={{color:'#5a4a7a',fontSize:'0.6rem',marginLeft:'0.3rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
+                              <span style={{color:'#b08fd4',fontSize:'0.7rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
+                              <span style={{display:'flex',alignItems:'baseline',gap:'0.3rem',flexWrap:'wrap'}}>
+                                <span style={{color:'#b08fd4'}}>{sp.name}</span>
+                                <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span>
+                              </span>
                             </div>
                             {isOpen && (
-                              <div style={{paddingLeft:'1.1rem',marginTop:'0.15rem'}}>
-                                <div style={{color:'#6a5a7a',fontSize:'0.72rem'}}>{sp.description || <span style={{fontStyle:'italic'}}>No description available.</span>}</div>
-                                {sp.taughtBy && <div style={{color:'#4a3a5a',fontSize:'0.65rem',fontStyle:'italic',marginTop:'0.1rem'}}>Taught by {sp.taughtBy}</div>}
+                              <div style={{paddingLeft:'1.1rem',marginTop:'0.2rem'}}>
+                                <div style={{color:'#6a5a7a',fontSize:'0.78rem',lineHeight:'1.4'}}>{sp.description || <span style={{fontStyle:'italic'}}>No description available.</span>}</div>
+                                {sp.taughtBy && <div style={{color:'#4a3a5a',fontSize:'0.72rem',fontStyle:'italic',marginTop:'0.1rem'}}>Taught by {sp.taughtBy}</div>}
                               </div>
                             )}
                           </div>
                           );
                         })}
                         {character.spellLearning?.map((sl,i)=>(
-                          <div key={`l${i}`} style={{padding:'0.15rem 0',fontSize:'0.68rem'}}>
+                          <div key={`l${i}`} style={{padding:'0.2rem 0',fontSize:'0.78rem'}}>
                             <span style={{color:'#8060a8'}}>◌ {sl.spellName}</span>
-                            <span style={{color:'#4a3a5a',fontSize:'0.58rem',marginLeft:'0.3rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+                            <span style={{color:'#4a3a5a',fontSize:'0.68rem',marginLeft:'0.3rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
                           </div>
                         ))}
                       </>
@@ -2107,23 +2109,23 @@ export default function Game({ user, onLogout, onAdmin }) {
                     <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:'0.3rem',marginBottom:'0.3rem'}}>
                       <button onClick={()=>{const d=Math.max(1,viewDay-1);setSelectedDay(d);setDayInput(String(d));}}
                         disabled={viewDay<=1}
-                        style={{background:'transparent',border:'none',color:viewDay>1?pal.textAccent:'#3a3a4a',cursor:viewDay>1?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>◄</button>
+                        style={{background:'transparent',border:'none',color:viewDay>1?pal.textAccent:'#3a3a4a',cursor:viewDay>1?'pointer':'default',fontSize:'0.95rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>◄</button>
                       <div style={{display:'flex',alignItems:'center',gap:'0.25rem'}}>
-                        {isPast && <span style={{fontSize:'0.7rem'}} title="Viewing past day">📖</span>}
-                        <span style={{color:pal.textMuted,fontSize:'0.68rem'}}>Day</span>
+                        {isPast && <span style={{fontSize:'0.78rem'}} title="Viewing past day">📖</span>}
+                        <span style={{color:pal.textMuted,fontSize:'0.78rem'}}>Day</span>
                         <input
                           value={dayInput || String(viewDay)}
                           onChange={e=>{const v=e.target.value.replace(/[^0-9]/g,'');setDayInput(v);}}
                           onBlur={()=>{const n=parseInt(dayInput);if(n>=1&&n<=maxDay){setSelectedDay(n===maxDay?null:n);}setDayInput('');}}
                           onKeyDown={e=>{if(e.key==='Enter'){e.target.blur();}}}
-                          style={{width:'1.8rem',background:'transparent',border:`1px solid ${pal.panelBorder}`,borderRadius:'2px',color:isPast?'#c9a96e':pal.textAccent,fontSize:'0.72rem',textAlign:'center',padding:'0.1rem',fontFamily:'Georgia, serif',outline:'none'}}
+                          style={{width:'2rem',background:'transparent',border:`1px solid ${pal.panelBorder}`,borderRadius:'2px',color:isPast?'#c9a96e':pal.textAccent,fontSize:'0.82rem',textAlign:'center',padding:'0.15rem',fontFamily:'Georgia, serif',outline:'none'}}
                         />
                       </div>
                       <button onClick={()=>{const d=Math.min(maxDay,viewDay+1);setSelectedDay(d===maxDay?null:d);setDayInput('');}}
                         disabled={viewDay>=maxDay}
-                        style={{background:'transparent',border:'none',color:viewDay<maxDay?pal.textAccent:'#3a3a4a',cursor:viewDay<maxDay?'pointer':'default',fontSize:'0.85rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>►</button>
+                        style={{background:'transparent',border:'none',color:viewDay<maxDay?pal.textAccent:'#3a3a4a',cursor:viewDay<maxDay?'pointer':'default',fontSize:'0.95rem',padding:'0 0.3rem',fontFamily:'Georgia, serif'}}>►</button>
                     </div>
-                    <div style={{color:pal.textMuted,fontSize:'0.72rem',fontStyle:'italic',textAlign:'center'}}>
+                    <div style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic',textAlign:'center'}}>
                       {isPast ? `Viewing Day ${viewDay}` : `${gt.label} · ${gt.hr12}:${gt.mn}${gt.ampm}`}
                     </div>
                   </>;
