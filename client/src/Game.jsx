@@ -1925,11 +1925,11 @@ export default function Game({ user, onLogout, onAdmin }) {
 
           {/* SIDEBAR — desktop only */}
           {isDesktop && (
-            <div style={{width:'310px',minWidth:'310px',overflowY:'auto',borderRight:`1px solid ${pal.headerBorder}`,background:pal.headerBg,padding:'0.7rem 0.85rem',display:'flex',flexDirection:'column',gap:'0.65rem',fontSize:'0.85rem'}}>
+            <div style={{width:'340px',minWidth:'340px',overflowY:'auto',borderRight:`1px solid ${pal.headerBorder}`,background:pal.headerBg,padding:'0.7rem 0.9rem',display:'flex',flexDirection:'column',gap:'0.65rem',fontSize:'0.88rem'}}>
               {/* NAME / LEVEL */}
               <div>
-                <div style={{color:pal.textAccent,fontSize:'1.15rem'}}>{character.name}</div>
-                <div style={{color:pal.textMuted,fontSize:'0.8rem'}}>Level {character.level} · {character.race}</div>
+                <div style={{color:pal.textAccent,fontSize:'1.25rem'}}>{character.name}</div>
+                <div style={{color:pal.textMuted,fontSize:'0.85rem'}}>Level {character.level} · {character.race}</div>
               </div>
 
               {/* HP / MP / XP + AC */}
@@ -1937,10 +1937,9 @@ export default function Game({ user, onLogout, onAdmin }) {
                 <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
                 <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
                 <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
-                <div style={{display:'flex',alignItems:'center',gap:'0.5rem',marginTop:'0.1rem'}}>
-                  <span style={{color:pal.textMuted,fontSize:'0.72rem'}}>AC</span>
-                  <span style={{color:'#8a9a6a',fontSize:'0.88rem',fontWeight:'bold'}}>{GameEngine.computeAC(character.stats, character.equipment)}</span>
-                  <span style={{color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',opacity:0.6}}>armor class</span>
+                <div style={{display:'flex',alignItems:'center',gap:'0.5rem',marginTop:'0.15rem'}}>
+                  <span style={{color:pal.textMuted,fontSize:'0.82rem'}}>AC</span>
+                  <span style={{color:'#8a9a6a',fontSize:'1rem',fontWeight:'bold'}}>{GameEngine.computeAC(character.stats, character.equipment)}</span>
                 </div>
               </div>
 
@@ -1999,17 +1998,44 @@ export default function Game({ user, onLogout, onAdmin }) {
 
               {/* EQUIPPED ITEMS */}
               <div style={{borderTop:`1px solid ${pal.panelBorder}`,paddingTop:'0.5rem'}}>
-                <div style={{color:pal.textMuted,fontSize:'0.65rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>EQUIPPED</div>
+                <div style={{color:pal.textMuted,fontSize:'0.68rem',letterSpacing:'0.1em',marginBottom:'0.2rem'}}>EQUIPPED</div>
                 {(()=>{
                   const eq = character.equipment || {};
+                  const strMod = Math.floor(((character.stats?.STR||10)-10)/2);
+                  const dexMod = Math.floor(((character.stats?.DEX||10)-10)/2);
                   const filled = Object.entries(EQUIPMENT_SLOTS).filter(([slot])=>eq[slot]);
-                  if(filled.length===0) return <div style={{color:pal.textMuted,fontSize:'0.78rem',fontStyle:'italic'}}>Nothing equipped</div>;
-                  return filled.map(([slot])=>(
-                    <div key={slot} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.1rem 0',fontSize:'0.78rem'}}>
-                      <span style={{color:pal.textAccent}}>{eq[slot]}</span>
-                      <span style={{color:pal.textMuted,fontSize:'0.65rem'}}>{EQUIPMENT_SLOTS[slot].label}</span>
+                  if(filled.length===0) return <div style={{color:pal.textMuted,fontSize:'0.82rem',fontStyle:'italic'}}>Nothing equipped</div>;
+                  return filled.map(([slot])=>{
+                    // Compute weapon stats for weapon slot
+                    let weaponInfo = null;
+                    if (slot === 'weapon' && eq[slot]) {
+                      const w = eq[slot].toLowerCase();
+                      const isRanged = w.includes('bow') || w.includes('crossbow') || w.includes('sling');
+                      const mod = isRanged ? dexMod : strMod;
+                      const modStr = mod >= 0 ? `+${mod}` : `${mod}`;
+                      let dmg = '1d6';
+                      if (w.includes('dagger') || w.includes('knife')) dmg = '1d4';
+                      else if (w.includes('great') || w.includes('two-hand') || w.includes('halberd') || w.includes('pike')) dmg = '1d12';
+                      else if (w.includes('sword') || w.includes('axe') || w.includes('mace') || w.includes('hammer') || w.includes('flail')) dmg = '1d8';
+                      else if (w.includes('staff') || w.includes('spear') || w.includes('club')) dmg = '1d6';
+                      else if (w.includes('bow')) dmg = '1d6';
+                      else if (w.includes('crossbow')) dmg = '1d8';
+                      weaponInfo = { toHit: modStr, dmg: `${dmg}${modStr}` };
+                    }
+                    return (
+                    <div key={slot} style={{padding:'0.15rem 0',fontSize:'0.82rem'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                        <span style={{color:pal.textAccent}}>{eq[slot]}</span>
+                        <span style={{color:pal.textMuted,fontSize:'0.68rem'}}>{EQUIPMENT_SLOTS[slot].label}</span>
+                      </div>
+                      {weaponInfo && (
+                        <div style={{color:'#8a6a4a',fontSize:'0.7rem',paddingLeft:'0.5rem'}}>
+                          Hit {weaponInfo.toHit} · Dmg {weaponInfo.dmg}
+                        </div>
+                      )}
                     </div>
-                  ));
+                    );
+                  });
                 })()}
               </div>
 
@@ -2093,9 +2119,10 @@ export default function Game({ user, onLogout, onAdmin }) {
                                 <span style={{color:'#4a3a5a',fontSize:'0.68rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
                               </span>
                             </div>
-                            {isOpen && sl.partialNote && (
+                            {isOpen && (
                               <div style={{paddingLeft:'1.1rem',marginTop:'0.2rem'}}>
-                                <div style={{color:'#6a5a7a',fontSize:'0.76rem',lineHeight:'1.4'}}>{sl.partialNote}</div>
+                                {sl.partialNote && <div style={{color:'#6a5a7a',fontSize:'0.76rem',lineHeight:'1.4'}}>{sl.partialNote}</div>}
+                                {sl.teacherNpcId && <div style={{color:'#4a3a5a',fontSize:'0.7rem',fontStyle:'italic',marginTop:'0.1rem'}}>Taught by {sl.teacherNpcId.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</div>}
                               </div>
                             )}
                           </div>
