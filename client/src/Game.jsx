@@ -690,6 +690,7 @@ export default function Game({ user, onLogout, onAdmin }) {
   const [sidebarStash, setSidebarStash]   = useState(false);
   const [showLocInv, setShowLocInv]       = useState(false);  // location inventory dropdown
   const [expandedSpells, setExpandedSpells] = useState({});  // { spellIndex: true/false }
+  const [expandedSkills, setExpandedSkills] = useState({});  // { skillIndex: true/false }
   const [changePwForm, setChangePwForm]   = useState({ old: '', new1: '', new2: '' });
   const [changePwMsg, setChangePwMsg]     = useState({ text: '', ok: false });
   const [lightMode, setLightMode]         = useState(() => localStorage.getItem('vrc-theme') === 'light');
@@ -788,8 +789,9 @@ export default function Game({ user, onLogout, onAdmin }) {
             taughtBy: sp.taughtBy || null,
           }));
         }
-        // Recover gameMinutes from message history if stuck at 0
-        if ((ch.gameMinutes || 0) === 0 && saved.messages && saved.messages.length > 2) {
+        // Recover gameMinutes from message history ONLY if truly at 0 (never played)
+        // Do NOT re-sum history — it double-counts time-skips and inflates the day counter
+        if (ch.gameMinutes === 0 && saved.messages && saved.messages.length > 2) {
           let recovered = 0;
           for (const msg of saved.messages) {
             if (msg.role === 'assistant' && msg.content) {
@@ -806,15 +808,16 @@ export default function Game({ user, onLogout, onAdmin }) {
             ch.dayCount = Math.floor((recovered + 1080) / 1440) + 1;
           }
         }
-        // Recalculate maxHp/maxMp from derived formula
+        // Recalculate maxHp/maxMp from derived formula — but only raise, never lower
+        // (GM can set maxMp/maxHp higher than the formula via training/events)
         if (ch.stats) {
           const derived = GameEngine.computeDerivedStats(ch.stats, ch.level || 1);
-          if (ch.maxHp !== derived.maxHp) {
+          if (derived.maxHp > (ch.maxHp || 0)) {
             const diff = derived.maxHp - ch.maxHp;
             ch.hp = Math.max(1, Math.min((ch.hp || 1) + diff, derived.maxHp));
             ch.maxHp = derived.maxHp;
           }
-          if (ch.maxMp !== derived.maxMp) {
+          if (derived.maxMp > (ch.maxMp || 0)) {
             const diff = derived.maxMp - ch.maxMp;
             ch.mp = Math.max(0, Math.min((ch.mp || 0) + diff, derived.maxMp));
             ch.maxMp = derived.maxMp;
@@ -1814,10 +1817,12 @@ export default function Game({ user, onLogout, onAdmin }) {
                         <span style={{color:'#b08fd4',fontSize:'0.65rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
                         <span>{sp.name} <span style={{color:'#5a4a7a',fontSize:'0.7rem'}}>({sp.mpCost != null ? `${sp.mpCost} MP` : '? MP'})</span></span>
                       </div>
-                      {isOpen && (<>
-                        <div style={{color:'#6a5a7a',fontSize:'0.75rem',marginTop:'0.25rem',paddingLeft:'1.1rem'}}>{sp.description || 'No description available.'}</div>
-                        <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic',paddingLeft:'1.1rem'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
-                      </>)}
+                      {isOpen && (
+                        <div style={{paddingLeft:'1.1rem',marginTop:'0.25rem'}}>
+                          <div style={{color:'#6a5a7a',fontSize:'0.75rem'}}>{sp.description || <span style={{fontStyle:'italic'}}>No description available.</span>}</div>
+                          {sp.taughtBy && <div style={{color:'#4a3a5a',fontSize:'0.68rem',fontStyle:'italic',marginTop:'0.1rem'}}>Taught by {sp.taughtBy}</div>}
+                        </div>
+                      )}
                     </div>
                     );
                   })
@@ -2023,12 +2028,27 @@ export default function Game({ user, onLogout, onAdmin }) {
                   <div style={{padding:'0.4rem 0.2rem 0'}}>
                     {character.skills?.length===0
                       ? <div style={{color:pal.textMuted,fontSize:'0.68rem',fontStyle:'italic'}}>No skills yet.</div>
-                      : character.skills.map(sk=>(
-                        <div key={sk.id} style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0.15rem 0',fontSize:'0.72rem'}}>
-                          <span style={{color:pal.textAccent}}>{sk.name}{sk.selfTaught?' *':''}</span>
-                          <span style={{color:pal.textMuted,fontSize:'0.62rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
+                      : character.skills.map((sk,i)=>{
+                        const isOpen = expandedSkills[i];
+                        return (
+                        <div key={sk.id} style={{padding:'0.15rem 0',fontSize:'0.72rem'}}>
+                          <div onClick={()=>setExpandedSkills(prev=>({...prev,[i]:!prev[i]}))}
+                            style={{cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem',userSelect:'none'}}>
+                            <span style={{color:pal.textAccent,fontSize:'0.6rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
+                            <span style={{flex:1,display:'flex',justifyContent:'space-between',alignItems:'baseline'}}>
+                              <span style={{color:pal.textAccent}}>{sk.name}{sk.selfTaught?' *':''}</span>
+                              <span style={{color:pal.textMuted,fontSize:'0.62rem'}}>T{sk.tier||1}{sk.practiceLevel>0?` +${sk.practiceLevel}`:''}</span>
+                            </span>
+                          </div>
+                          {isOpen && sk.description && (
+                            <div style={{paddingLeft:'1.1rem',marginTop:'0.15rem'}}>
+                              <div style={{color:pal.textMuted,fontSize:'0.68rem'}}>{sk.description}</div>
+                              {sk.taughtBy && <div style={{color:pal.textMuted,fontSize:'0.6rem',fontStyle:'italic',opacity:0.7}}>Taught by {sk.taughtBy}</div>}
+                            </div>
+                          )}
                         </div>
-                      ))
+                        );
+                      })
                     }
                   </div>
                 )}
@@ -2057,8 +2077,8 @@ export default function Game({ user, onLogout, onAdmin }) {
                             </div>
                             {isOpen && (
                               <div style={{paddingLeft:'1.1rem',marginTop:'0.15rem'}}>
-                                <div style={{color:'#6a5a7a',fontSize:'0.72rem'}}>{sp.description || 'No description available.'}</div>
-                                <div style={{color:'#4a3a5a',fontSize:'0.65rem',fontStyle:'italic'}}>Taught by {sp.taughtBy || 'Unknown'}</div>
+                                <div style={{color:'#6a5a7a',fontSize:'0.72rem'}}>{sp.description || <span style={{fontStyle:'italic'}}>No description available.</span>}</div>
+                                {sp.taughtBy && <div style={{color:'#4a3a5a',fontSize:'0.65rem',fontStyle:'italic',marginTop:'0.1rem'}}>Taught by {sp.taughtBy}</div>}
                               </div>
                             )}
                           </div>
