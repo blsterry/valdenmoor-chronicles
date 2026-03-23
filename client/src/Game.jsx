@@ -509,6 +509,28 @@ const GameEngine = {
     return { character: c, leveledUp: false, skillNotices };
   },
 
+  computeAC(stats, equipment) {
+    const dexMod = Math.floor(((stats?.DEX || 10) - 10) / 2);
+    let armorBonus = 0;
+    const eq = equipment || {};
+    // Armor bonus from equipped armor
+    if (eq.armor) {
+      const a = eq.armor.toLowerCase();
+      if (a.includes('plate')) armorBonus = 6;
+      else if (a.includes('chain') || a.includes('mail')) armorBonus = 4;
+      else if (a.includes('brigandine') || a.includes('scale')) armorBonus = 3;
+      else if (a.includes('leather') || a.includes('hide') || a.includes('gambeson')) armorBonus = 2;
+      else if (a.includes('padded') || a.includes('cloth')) armorBonus = 1;
+      else armorBonus = 2; // default for unknown armor
+    }
+    // Shield bonus
+    if (eq.offhand) {
+      const o = eq.offhand.toLowerCase();
+      if (o.includes('shield') || o.includes('buckler')) armorBonus += 2;
+    }
+    return 10 + dexMod + armorBonus;
+  },
+
   computeDerivedStats(stats, level = 1) {
     const conMod = Math.floor((stats.CON - 10) / 2);
     const intMod = Math.floor((stats.INT - 10) / 2);
@@ -1942,11 +1964,16 @@ export default function Game({ user, onLogout, onAdmin }) {
                 <div style={{color:pal.textMuted,fontSize:'0.8rem'}}>Level {character.level} · {character.race}</div>
               </div>
 
-              {/* HP / MP / XP */}
+              {/* HP / MP / XP + AC */}
               <div style={{display:'flex',flexDirection:'column',gap:'0.35rem'}}>
                 <StatBar label="HP" value={character.hp} max={character.maxHp} color={hpColor}/>
                 <StatBar label="MP" value={character.mp} max={character.maxMp} color="#7a8fd4"/>
                 <XPBar value={character.xp} max={character.xpToNext} color={theme.accent}/>
+                <div style={{display:'flex',alignItems:'center',gap:'0.5rem',marginTop:'0.1rem'}}>
+                  <span style={{color:pal.textMuted,fontSize:'0.72rem'}}>AC</span>
+                  <span style={{color:'#8a9a6a',fontSize:'0.88rem',fontWeight:'bold'}}>{GameEngine.computeAC(character.stats, character.equipment)}</span>
+                  <span style={{color:pal.textMuted,fontSize:'0.62rem',fontStyle:'italic',opacity:0.6}}>armor class</span>
+                </div>
               </div>
 
               {/* CONDITION (needs) */}
@@ -2086,12 +2113,26 @@ export default function Game({ user, onLogout, onAdmin }) {
                           </div>
                           );
                         })}
-                        {character.spellLearning?.map((sl,i)=>(
+                        {character.spellLearning?.map((sl,i)=>{
+                          const isOpen = expandedSpells[`sbl${i}`];
+                          return (
                           <div key={`l${i}`} style={{padding:'0.2rem 0',fontSize:'0.78rem'}}>
-                            <span style={{color:'#8060a8'}}>◌ {sl.spellName}</span>
-                            <span style={{color:'#4a3a5a',fontSize:'0.68rem',marginLeft:'0.3rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+                            <div onClick={()=>setExpandedSpells(prev=>({...prev,[`sbl${i}`]:!prev[`sbl${i}`]}))}
+                              style={{cursor:'pointer',display:'flex',alignItems:'center',gap:'0.3rem',userSelect:'none'}}>
+                              <span style={{color:'#8060a8',fontSize:'0.7rem',flexShrink:0}}>{isOpen?'▼':'▶'}</span>
+                              <span style={{display:'flex',alignItems:'baseline',gap:'0.3rem',flexWrap:'wrap'}}>
+                                <span style={{color:'#8060a8'}}>{sl.spellName}</span>
+                                <span style={{color:'#4a3a5a',fontSize:'0.68rem'}}>Stage {sl.stage}/{sl.totalStages}</span>
+                              </span>
+                            </div>
+                            {isOpen && sl.partialNote && (
+                              <div style={{paddingLeft:'1.1rem',marginTop:'0.2rem'}}>
+                                <div style={{color:'#6a5a7a',fontSize:'0.76rem',lineHeight:'1.4'}}>{sl.partialNote}</div>
+                              </div>
+                            )}
                           </div>
-                        ))}
+                          );
+                        })}
                       </>
                     }
                   </div>
