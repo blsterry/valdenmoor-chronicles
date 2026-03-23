@@ -811,40 +811,8 @@ export default function Game({ user, onLogout, onAdmin }) {
             taughtBy: sp.taughtBy || null,
           }));
         }
-        // Recover gameMinutes from message history ONLY if truly at 0 (never played)
-        // Do NOT re-sum history — it double-counts time-skips and inflates the day counter
-        if (ch.gameMinutes === 0 && saved.messages && saved.messages.length > 2) {
-          let recovered = 0;
-          for (const msg of saved.messages) {
-            if (msg.role === 'assistant' && msg.content) {
-              try {
-                const parsed = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content;
-                if (parsed.minutesElapsed && parsed.minutesElapsed > 0) {
-                  recovered += parsed.minutesElapsed;
-                }
-              } catch(e) { /* skip unparseable */ }
-            }
-          }
-          if (recovered > 0) {
-            ch.gameMinutes = recovered;
-            ch.dayCount = Math.floor((recovered + 1080) / 1440) + 1;
-          }
-        }
-        // Recalculate maxHp/maxMp from derived formula — but only raise, never lower
-        // (GM can set maxMp/maxHp higher than the formula via training/events)
-        if (ch.stats) {
-          const derived = GameEngine.computeDerivedStats(ch.stats, ch.level || 1);
-          if (derived.maxHp > (ch.maxHp || 0)) {
-            const diff = derived.maxHp - ch.maxHp;
-            ch.hp = Math.max(1, Math.min((ch.hp || 1) + diff, derived.maxHp));
-            ch.maxHp = derived.maxHp;
-          }
-          if (derived.maxMp > (ch.maxMp || 0)) {
-            const diff = derived.maxMp - ch.maxMp;
-            ch.mp = Math.max(0, Math.min((ch.mp || 0) + diff, derived.maxMp));
-            ch.maxMp = derived.maxMp;
-          }
-        }
+        // Trust save data — do NOT recalculate gameMinutes or maxHp/maxMp on load.
+        // The GM and game engine manage these values during gameplay.
         setCharacter(ch);
         setMessages(saved.messages || []);
         setDisplayLog(saved.display_log || []);
