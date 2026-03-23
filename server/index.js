@@ -1006,7 +1006,20 @@ ${WORLD_LORE}
 ${EXPANDED_LORE}
 
 CURRENT CHARACTER:
-${JSON.stringify(character, null, 2)}
+${JSON.stringify({
+  ...character,
+  _computed: {
+    ac: 10 + Math.floor(((character.stats?.DEX || 10) - 10) / 2)
+      + (character.equipment?.armor ? (character.equipment.armor.toLowerCase().includes('plate') ? 6 : character.equipment.armor.toLowerCase().includes('chain') || character.equipment.armor.toLowerCase().includes('mail') ? 4 : character.equipment.armor.toLowerCase().includes('leather') || character.equipment.armor.toLowerCase().includes('gambeson') ? 2 : 2) : 0)
+      + (character.equipment?.offhand && (character.equipment.offhand.toLowerCase().includes('shield') || character.equipment.offhand.toLowerCase().includes('buckler')) ? 2 : 0),
+    strMod: Math.floor(((character.stats?.STR || 10) - 10) / 2),
+    dexMod: Math.floor(((character.stats?.DEX || 10) - 10) / 2),
+    conMod: Math.floor(((character.stats?.CON || 10) - 10) / 2),
+    intMod: Math.floor(((character.stats?.INT || 10) - 10) / 2),
+    wisMod: Math.floor(((character.stats?.WIS || 10) - 10) / 2),
+    chaMod: Math.floor(((character.stats?.CHA || 10) - 10) / 2),
+  }
+}, null, 2)}
 
 ${character.questType && QUEST_TYPE_CATALOG[character.questType] ? QUEST_TYPE_CATALOG[character.questType] + '\n' : ''}
 ${timeSection}
@@ -1072,13 +1085,50 @@ For ANY action with uncertain outcome, use this system internally (do NOT show t
 - Natural 1: always a notable failure regardless of modifiers. Natural 20: always a notable success.
 - The player should FEEL their stats mattering. A STR 14 character should succeed at physical tasks more often than STR 8. A WIS 16 character notices things others miss.
 
-COMBAT DIE ROLLS:
-- Attack rolls: 1d20 + STR mod (melee) or DEX mod (ranged) + weapon/skill bonus vs enemy AC (light armor 12, medium 14, heavy 16, monster varies)
-- Damage: based on weapon type. Unarmed 1-2, dagger 1-4, sword 1-8, great weapon 1-12. Add STR mod for melee.
-- Defense: player AC = 10 + DEX mod + armor bonus (leather +2, chain +4, plate +6, shield +2). Enemy attacks vs player AC.
-- Both sides roll. Combat should feel dangerous — even weak enemies can land hits. A fair fight should have real risk of injury.
-- Critical hits (nat 20): double damage dice. Critical misses (nat 1): weapon dropped, stumble, or other mishap.
-- Equipment matters: describe how armor absorbs blows, how a good sword cuts cleaner, how a shield deflects.
+COMBAT SYSTEM — CRITICAL:
+The character's AC (armor class) is pre-computed in _computed.ac. Use this as the target number enemies must meet or beat to hit the player.
+
+ATTACK ROLLS:
+- Player attack: 1d20 + STR mod (melee) or DEX mod (ranged/finesse) + weapon skill bonus + weapon modifier
+- Weapon skill bonuses: Swordsmanship, Axe Fighting, Archery, etc. — Tier 1 +2, Tier 2 +4, Tier 3 +6
+- Weapon modifiers: quality weapons give +1 to +3. Improvised weapons give -2 to -4.
+- vs enemy AC: light armor 12, medium 14, heavy 16, monster varies (wolf 13, bear 15, bandit 14, knight 18)
+
+DAMAGE:
+- Unarmed: 1+STR mod (min 1). Improvised (rock, pan, chair leg): 1d4+STR mod.
+- Dagger/small: 1d4+STR mod. Sword/axe/mace: 1d8+STR mod. Great weapon (2h): 1d12+STR mod.
+- Staff: 1d6+STR mod. Bow: 1d6+DEX mod. Crossbow: 1d8+DEX mod.
+- Quality weapons: +1 to +2 damage. Magic weapons: +1 to +3 damage + possible effects.
+
+IMPROVISED WEAPONS — GM AUTHORITY:
+When a player picks up ANY object and uses it as a weapon, YOU assign its stats on the fly:
+- Attack modifier: -4 (awkward, like a frying pan) to -1 (reasonable, like a chair leg) to +0 (natural weapon, like a heavy rock)
+- Damage: 1d4 (light/awkward) to 1d6 (solid/heavy) + STR mod
+- Describe the weapon's feel, weight, and effectiveness in the narrative
+- Example: "The cast iron pan is unwieldy (-3 attack) but devastating if it connects (1d6+2 damage)"
+
+DEFENSE:
+- Player AC = _computed.ac (already calculated: 10 + DEX mod + armor + shield)
+- Armor bonuses: Padded/cloth +1, Leather/hide +2, Brigandine/scale +3, Chain/mail +4, Plate +6
+- Shield/buckler: +2. Dodge bonus from DEX already included in AC.
+- When an enemy attack meets or exceeds the player's AC, describe the hit and apply HP damage.
+
+COMBAT FLOW:
+1. Roll initiative (1d20 + DEX mod) for turn order on first round
+2. Each round: attacker rolls 1d20 + mods vs defender's AC
+3. If hit, roll damage. Apply to HP via stateChanges hp field.
+4. Both sides roll. Combat should feel DANGEROUS. Even weak enemies can hit.
+5. Describe combat cinematically — armor absorbing blows, near misses, the weight of weapons.
+6. Track enemy HP mentally. Weak enemies: 5-15 HP. Medium: 15-30. Strong: 30-60.
+
+CRITICAL HITS & MISSES:
+- Natural 20: double damage dice (not modifier). Describe a spectacular strike.
+- Natural 1: weapon dropped, stumble, friendly fire, or other mishap. Make it dramatic but not catastrophic.
+
+COMBAT SKILLS the GM can grant or the player can learn:
+- Swordsmanship, Axe Fighting, Mace & Hammer, Spear & Polearm, Archery, Unarmed Combat, Shield Work, Dual Wielding
+- These follow the same skill tier system. Relevant combat skill adds its tier bonus to attack rolls.
+- The GM can use addSkill to grant these when a trainer teaches them or the player demonstrates aptitude (emergentSkill for self-taught combat moves).
 
 GM NARRATIVE AUTHORITY — CRITICAL:
 You are the author of this world. The player chooses their ACTIONS, not the outcomes.
