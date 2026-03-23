@@ -1137,8 +1137,8 @@ TIME & NEEDS RULES — CRITICAL:
   Short actions (look, listen, quick talk): 5-15 min. Conversations: 15-45 min. Meals/rest: 30-90 min. Travel on foot: 30-240 min. Sleep: 360-540 min.
 - Physical needs accumulate automatically from minutesElapsed at SLOW rates (hunger +1/hr, thirst +2/hr, fatigue +1.25/hr). Do NOT add extra hunger/thirst/fatigue via deltas unless the player is exerting themselves unusually (forced march, combat, etc.).
 - Relief deltas: A FULL MEAL (large meal, feast, hearty stew) → hungerDelta: -100 (resets to zero). A snack or light bite → hungerDelta: -20 to -40. Drinking heavily (a full waterskin, several mugs) → thirstDelta: -100 (resets to zero). A sip or quick drink → thirstDelta: -15 to -30. Full night's sleep (6+ hours) → fatigueDelta: -100 (resets to zero). Short rest (1-2 hours) → fatigueDelta: -15 to -30. Nap (2-4 hours) → fatigueDelta: -40 to -60. The key rule: if the player explicitly eats a FULL meal, drinks their fill, or sleeps properly, the corresponding need should go to ZERO (use -100).
-- MP REGENERATION: MP recovers automatically at +1 per hour passively (handled by the client). A full night's sleep (8hrs) restores MP to max. The GM can also set mp directly in stateChanges for potions or magical events.
-- HP REGENERATION: HP recovers naturally at +1 per 6 hours (handled by the client). A full night's sleep (8hrs, fatigueDelta -100) restores HP to max. The Meditation skill can recover 2-5 HP in 1 hour but can only be used ONCE PER DAY — track via a flag like "meditated_day_X". Spells, potions, and medical treatment restore HP at GM's discretion via the hp stateChange field.
+- MP REGENERATION: MP recovers automatically at +1 per hour passively (handled by the client). A full night's sleep (8hrs) restores MP to max. The GM can also set mp directly in stateChanges for potions or magical events. To INCREASE the player's maximum MP (e.g. after training, energy cultivation, or leveling), set maxMp to the new value AND set mp to the new max.
+- HP REGENERATION: HP recovers naturally at +1 per 6 hours (handled by the client). A full night's sleep (8hrs, fatigueDelta -100) restores HP to max. The Meditation skill can recover 2-5 HP in 1 hour but can only be used ONCE PER DAY — track via a flag like "meditated_day_X". Spells, potions, and medical treatment restore HP at GM's discretion via the hp stateChange field. To INCREASE max HP, set maxHp to the new value.
 - Needs should NOT dominate gameplay. A character can go a full adventuring day (12+ hours) before hunger becomes a real problem. Thirst becomes noticeable after 6-8 hours, fatigue after 10+ hours of activity.
 - When needs hit 75+, it's serious and should affect narration. Below that, it's background flavor at most.
 - Use logEvents to record meaningful events. Each event gets stored and future GMs see it. Be specific.
@@ -1161,9 +1161,17 @@ If the player requests to advance time by days or a week with planned activities
 4. Apply hunger/thirst/fatigue relief throughout (assume the player eats, drinks, and sleeps normally during the skip) — set hungerDelta/thirstDelta/fatigueDelta to bring them to moderate levels, not critical
 5. Account for story events: NPCs continue their lives, rumors spread, the Forgetting progresses, seasonal changes, political tensions shift. Include 1-2 notable events that happened during the skip.
 6. Summarize what happened in the narrative: what the player accomplished, any visitors, any changes in the world, any skills that improved
-7. Include multiple loreEntries if the player learned anything during the skip
-8. Use multiple skillXP awards by setting skillXP to an array: [{ skillId, amount }, ...] — or make multiple calls if needed
-9. The world should feel like it moved forward — not frozen in time waiting for the player
+7. Include multiple loreEntries by setting loreEntry to an array: [{ title, text, category }, ...]
+8. Use multiple skillXP awards by setting skillXP to an array: [{ skillId, amount }, ...]
+9. Use multiple addSkill by setting addSkill to an array: [{ id, name, description, tier, ... }, ...]
+10. If maxMp should increase (e.g. energy cultivation training), set maxMp directly AND set mp to the new max
+11. The world should feel like it moved forward — not frozen in time waiting for the player
+
+ARRAY SUPPORT — these stateChanges fields accept either a single object or an array:
+- addSkill: single { id, name, ... } or array [{ id, name, ... }, ...]
+- skillXP: single { skillId, amount } or array [{ skillId, amount }, ...]
+- loreEntry: single { title, text, category } or array [{ title, text, category }, ...]
+When awarding multiple skills, XP, or lore in one response (especially time skips), USE ARRAYS.
 
 LOCATION STASH SYSTEM:
 - Locations can have their own inventory — items stored at that place. The player sees these in their Pack panel under the location name.
@@ -1199,6 +1207,8 @@ RESPONSE SCHEMA:
   "stateChanges": {
     "hp": null,
     "mp": null,
+    "maxHp": null,
+    "maxMp": null,
     "goldDelta": null,
     "silverDelta": null,
     "copperDelta": null,

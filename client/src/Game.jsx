@@ -247,6 +247,9 @@ const GameEngine = {
       if (sc.fatigueDelta <= -60) { c.mp = c.maxMp; c.hp = c.maxHp; }
     }
 
+    // GM can directly set maxHp/maxMp — process BEFORE hp/mp so clamp uses new max
+    if (sc.maxHp != null) c.maxHp = Math.max(1, sc.maxHp);
+    if (sc.maxMp != null) c.maxMp = Math.max(0, sc.maxMp);
     if (sc.hp != null)   c.hp   = Math.max(0, Math.min(sc.hp, c.maxHp));
     if (sc.mp != null)   c.mp   = Math.max(0, Math.min(sc.mp, c.maxMp));
     // Currency deltas (goldDelta/silverDelta/copperDelta) — normalize via total copper
@@ -331,22 +334,34 @@ const GameEngine = {
       }
     }
 
-    // Initial skill addition (Tier 1, first lesson)
+    // Skill addition — supports single object or array; updates existing if higher tier
     if (sc.addSkill) {
-      const newSkill = {
-        id: sc.addSkill.id || sc.addSkill.name?.toLowerCase().replace(/\s+/g, '_'),
-        name: sc.addSkill.name,
-        tier: sc.addSkill.tier || 1,
-        tierName: sc.addSkill.tierName || 'Novice',
-        xp: 0,
-        xpToNext: sc.addSkill.xpToNext || 50,
-        description: sc.addSkill.description || '',
-        taughtBy: sc.addSkill.taughtBy || '',
-        practiceLevel: 0,
-      };
-      if (!c.skills.some(s => s.id === newSkill.id)) {
-        c.skills = [...c.skills, newSkill];
+      const skillsToAdd = Array.isArray(sc.addSkill) ? sc.addSkill : [sc.addSkill];
+      let skills = [...c.skills];
+      for (const raw of skillsToAdd) {
+        if (!raw?.name) continue;
+        const newSkill = {
+          id: raw.id || raw.name?.toLowerCase().replace(/\s+/g, '_'),
+          name: raw.name,
+          tier: raw.tier || 1,
+          tierName: raw.tierName || (raw.tier === 2 ? 'Apprentice' : raw.tier === 3 ? 'Journeyman' : 'Novice'),
+          xp: 0,
+          xpToNext: raw.xpToNext || (raw.tier === 2 ? 200 : raw.tier === 3 ? 500 : 50),
+          description: raw.description || '',
+          taughtBy: raw.taughtBy || '',
+          practiceLevel: raw.practiceLevel || 0,
+        };
+        const existingIdx = skills.findIndex(s => s.id === newSkill.id);
+        if (existingIdx >= 0) {
+          // Update if incoming tier is higher, or if description is being added/updated
+          if (newSkill.tier > (skills[existingIdx].tier || 1) || (newSkill.description && !skills[existingIdx].description)) {
+            skills[existingIdx] = { ...skills[existingIdx], ...newSkill, xp: 0, practiceLevel: newSkill.practiceLevel || 0 };
+          }
+        } else {
+          skills.push(newSkill);
+        }
       }
+      c.skills = skills;
     }
 
     // Self-taught (emergent) skill acquisition
@@ -435,16 +450,18 @@ const GameEngine = {
 
     if (sc.addQuestFlag) c.flags = { ...c.flags, ...sc.addQuestFlag };
 
-    // GM lore entry
+    // GM lore entry (supports single object or array)
     if (sc.loreEntry) {
-      const entry = sc.loreEntry;
+      const entries = Array.isArray(sc.loreEntry) ? sc.loreEntry : [sc.loreEntry];
       c.lore = [...(c.lore || [])];
-      // Update existing entry with same title, or add new
-      const existing = c.lore.findIndex(l => l.title === entry.title);
-      if (existing >= 0) {
-        c.lore[existing] = { ...c.lore[existing], ...entry };
-      } else {
-        c.lore.push({ title: entry.title, text: entry.text, category: entry.category || 'general' });
+      for (const entry of entries) {
+        if (!entry?.title) continue;
+        const existing = c.lore.findIndex(l => l.title === entry.title);
+        if (existing >= 0) {
+          c.lore[existing] = { ...c.lore[existing], ...entry };
+        } else {
+          c.lore.push({ title: entry.title, text: entry.text, category: entry.category || 'general' });
+        }
       }
     }
 
